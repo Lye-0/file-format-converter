@@ -8,10 +8,11 @@ export default function DownloadArea({
   name: string;
 }) {
   return (
-    <div className="flex h-40 w-56 flex-col items-center justify-center rounded-xl border-2 border-gray-200 p-4 text-center">
+    <div className="flex h-36 w-full max-w-[340px] flex-col items-center justify-center rounded-xl border-2 border-gray-200 p-4 text-center sm:h-40 sm:w-56 sm:max-w-none">
       {url ? (
         <>
-          <span className="text-3xl">✅</span>
+          <span className="text-2xl sm:text-3xl">✅</span>
+
           <a
             href={url}
             download={name}
@@ -19,7 +20,8 @@ export default function DownloadArea({
           >
             ダウンロード
           </a>
-          <span className="mt-2 line-clamp-2 break-all text-xs text-gray-400">
+
+          <span className="mt-2 max-w-full truncate text-xs text-gray-400">
             {name}
           </span>
         </>

@@ -1,4 +1,5 @@
 "use client";
+
 import { useRef, useState } from "react";
 
 export default function DropZone({
@@ -25,7 +26,7 @@ export default function DropZone({
         if (f) onFile(f);
       }}
       onClick={() => inputRef.current?.click()}
-      className={`flex h-40 w-56 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-4 text-center transition ${
+      className={`flex h-32 w-full max-w-[320px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-4 text-center transition sm:h-40 sm:w-56 sm:max-w-none ${
         drag ? "border-green-500 bg-green-50" : "border-gray-300 hover:border-gray-400"
       }`}
     >
@@ -38,9 +39,10 @@ export default function DropZone({
           if (f) onFile(f);
         }}
       />
+
       {file ? (
         <>
-          <span className="text-3xl">📄</span>
+          <span className="text-2xl sm:text-3xl">📄</span>
           <span className="mt-2 line-clamp-2 break-all text-sm font-medium">
             {file.name}
           </span>
@@ -50,7 +52,7 @@ export default function DropZone({
         </>
       ) : (
         <>
-          <span className="text-3xl">⬆️</span>
+          <span className="text-2xl sm:text-3xl">⬆️</span>
           <span className="mt-2 text-sm text-gray-500">
             ファイルをドロップ
             <br />
