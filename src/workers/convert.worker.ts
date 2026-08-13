@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+
 import * as Comlink from "comlink";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { PDFDocument } from "pdf-lib";
@@ -6,7 +7,12 @@ import { pngToIco } from "@/lib/ico";
 
 export type ImageOpts = {
   scalePct?: number;
+  width?: number;
+  height?: number;
+  keepAspect?: boolean;
   rotate?: number;
+  flipX?: boolean;
+  flipY?: boolean;
   quality?: number;
 };
 
@@ -18,18 +24,6 @@ type VipsModule = {
 
 let vipsPromise: Promise<any> | null = null;
 
-/**
- * 重要:
- * Next.js 16 / Turbopack では import("wasm-vips") すると、
- * node_modules/wasm-vips/lib/vips-es6.js がバンドル解析されて
- * CommonJS / ESM 判定の不整合で落ちることがある。
- *
- * そのため npm package として import せず、
- * public/vips/vips-es6.js をブラウザ実行時に直接読み込む。
- *
- * new Function 経由にしているのは、Turbopack にこの import を
- * 静的解析させないため。
- */
 async function getVips() {
   if (!vipsPromise) {
     vipsPromise = (async () => {
@@ -58,7 +52,6 @@ async function getFFmpeg() {
   if (!ffmpeg) {
     ffmpeg = new FFmpeg();
 
-    // public/ffmpeg/ に置いた core を読み込む
     await ffmpeg.load({
       coreURL: "/ffmpeg/ffmpeg-core.js",
       wasmURL: "/ffmpeg/ffmpeg-core.wasm",
@@ -66,6 +59,69 @@ async function getFFmpeg() {
   }
 
   return ffmpeg;
+}
+
+/* ---------- 画像編集共通処理 ---------- */
+
+function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
+  let out = img;
+
+  try {
+    out = out.autorot();
+  } catch {
+    // EXIFがない画像では何もしない
+  }
+
+  if (opts.rotate === 90) {
+    out = out.rot(vips.Angle.d90);
+  } else if (opts.rotate === 180) {
+    out = out.rot(vips.Angle.d180);
+  } else if (opts.rotate === 270) {
+    out = out.rot(vips.Angle.d270);
+  }
+
+  try {
+    if (opts.flipX) {
+      out = out.flip(vips.Direction.horizontal);
+    }
+
+    if (opts.flipY) {
+      out = out.flip(vips.Direction.vertical);
+    }
+  } catch {
+    // wasm-vips のビルド差異で flip が使えない場合は無視
+  }
+
+  const requestedWidth =
+    typeof opts.width === "number" && opts.width > 0 ? opts.width : undefined;
+
+  const requestedHeight =
+    typeof opts.height === "number" && opts.height > 0 ? opts.height : undefined;
+
+  if (requestedWidth || requestedHeight) {
+    const xScale = requestedWidth ? requestedWidth / out.width : undefined;
+    const yScale = requestedHeight ? requestedHeight / out.height : undefined;
+
+    if (opts.keepAspect !== false) {
+      const scale =
+        xScale && yScale ? Math.min(xScale, yScale) : xScale ?? yScale ?? 1;
+
+      out = out.resize(scale);
+    } else {
+      const xs = xScale ?? 1;
+      const ys = yScale ?? 1;
+
+      try {
+        out = out.resize(xs, { vscale: ys });
+      } catch {
+        out = out.resize(xs);
+      }
+    }
+  } else if (opts.scalePct && opts.scalePct !== 100) {
+    out = out.resize(opts.scalePct / 100);
+  }
+
+  return out;
 }
 
 /* ---------- Worker API ---------- */
@@ -78,24 +134,7 @@ const api = {
     const vips = await getVips();
 
     let img = vips.Image.newFromBuffer(new Uint8Array(buffer));
-
-    try {
-      img = img.autorot();
-    } catch {
-      // EXIFがない画像では何もしない
-    }
-
-    if (opts.rotate === 90) {
-      img = img.rot(vips.Angle.d90);
-    } else if (opts.rotate === 180) {
-      img = img.rot(vips.Angle.d180);
-    } else if (opts.rotate === 270) {
-      img = img.rot(vips.Angle.d270);
-    }
-
-    if (opts.scalePct && opts.scalePct !== 100) {
-      img = img.resize(opts.scalePct / 100);
-    }
+    img = applyImageTransforms(img, vips, opts);
 
     // ICO
     if (target === "ico") {
@@ -114,9 +153,8 @@ const api = {
       return Comlink.transfer(ab, [ab]);
     }
 
-    // 通常の画像形式
     const ext = target === "jpeg" ? "jpg" : target;
-    const q = opts.quality ?? 80;
+    const q = opts.quality ?? 82;
     const options: Record<string, unknown> = {};
 
     if (["jpg", "webp", "avif", "heic", "heif"].includes(ext)) {
@@ -138,24 +176,7 @@ const api = {
     const vips = await getVips();
 
     let img = vips.Image.newFromBuffer(new Uint8Array(buffer));
-
-    try {
-      img = img.autorot();
-    } catch {
-      // noop
-    }
-
-    if (opts.rotate === 90) {
-      img = img.rot(vips.Angle.d90);
-    } else if (opts.rotate === 180) {
-      img = img.rot(vips.Angle.d180);
-    } else if (opts.rotate === 270) {
-      img = img.rot(vips.Angle.d270);
-    }
-
-    if (opts.scalePct && opts.scalePct !== 100) {
-      img = img.resize(opts.scalePct / 100);
-    }
+    img = applyImageTransforms(img, vips, opts);
 
     const png: Uint8Array = img.writeToBuffer(".png");
     const w = img.width;

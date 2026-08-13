@@ -20,7 +20,12 @@ function getRemote() {
 
 export type ConvertOpts = {
   scalePct?: number;
+  width?: number;
+  height?: number;
+  keepAspect?: boolean;
   rotate?: number;
+  flipX?: boolean;
+  flipY?: boolean;
   quality?: number;
 };
 
@@ -48,7 +53,7 @@ export async function convertFile(
     const out = (await api.convertImage(buf, target, opts)) as ArrayBuffer;
 
     return new Blob([out], {
-      type: MIME[target],
+      type: MIME[target] ?? "application/octet-stream",
     });
   }
 
@@ -64,17 +69,11 @@ export async function convertFile(
     )) as ArrayBuffer;
 
     return new Blob([out], {
-      type: MIME[target],
+      type: MIME[target] ?? "application/octet-stream",
     });
   }
 
   if (cat === "pdf") {
-    /**
-     * 重要:
-     * pdfToImages.ts は PDF を変換するときだけ動的 import する。
-     * トップレベル import にすると Next.js 側で pdf.js がサーバー評価され、
-     * DOMMatrix is not defined が再発する。
-     */
     const { pdfToFirstPageImage } = await import("./pdfToImages");
 
     return await pdfToFirstPageImage(
