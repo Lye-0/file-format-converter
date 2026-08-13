@@ -169,7 +169,7 @@ export default function Home() {
 
           {/* スマホ: オプションブロック / PC: プルダウンのみ */}
           <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:w-auto sm:border-0 sm:bg-transparent sm:p-0">
-            <div className="flex items-center justify-between gap-3 sm:block">
+            <div className="flex items-center justify-between gap-3 sm:flex sm:justify-center">
               <span className="shrink-0 text-sm font-medium text-gray-600 sm:hidden">
                 変換先
               </span>
