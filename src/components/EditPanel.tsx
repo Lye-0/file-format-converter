@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DropZone from "@/components/DropZone";
 import DownloadArea from "@/components/DownloadArea";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
 
 type ResizeMode = "percent" | "pixels";
-type EditStatus = "idle" | "editing" | "done" | "error";
 type PreviewMode = "native" | "converted";
 
 const IMAGE_EDIT_OUTPUTS = ["png", "jpg", "webp", "avif", "gif", "bmp", "tiff"];
+
+const DEBOUNCE_MS = 300;
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -39,6 +40,7 @@ export default function EditPanel() {
 
   const [editedUrl, setEditedUrl] = useState<string | null>(null);
   const [editedSize, setEditedSize] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const [target, setTarget] = useState("png");
   const [resizeMode, setResizeMode] = useState<ResizeMode>("percent");
@@ -55,9 +57,57 @@ export default function EditPanel() {
   const [flipY, setFlipY] = useState(false);
   const [quality, setQuality] = useState(82);
 
-  const [status, setStatus] = useState<EditStatus>("idle");
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+
+  const sourceUrlRef = useRef<string | null>(null);
+  const editedUrlRef = useRef<string | null>(null);
+  const downloadUrlRef = useRef<string | null>(null);
+
+  const fileRef = useRef<File | null>(null);
+  const targetRef = useRef(target);
+  const resizeModeRef = useRef(resizeMode);
+  const scalePctRef = useRef(scalePct);
+  const widthRef = useRef(width);
+  const heightRef = useRef(height);
+  const keepAspectRef = useRef(keepAspect);
+  const rotateRef = useRef(rotate);
+  const flipXRef = useRef(flipX);
+  const flipYRef = useRef(flipY);
+  const qualityRef = useRef(quality);
+
+  const debounceTimerRef = useRef<number | null>(null);
+  const conversionVersionRef = useRef(0);
+
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+  useEffect(() => {
+    resizeModeRef.current = resizeMode;
+  }, [resizeMode]);
+  useEffect(() => {
+    scalePctRef.current = scalePct;
+  }, [scalePct]);
+  useEffect(() => {
+    widthRef.current = width;
+  }, [width]);
+  useEffect(() => {
+    heightRef.current = height;
+  }, [height]);
+  useEffect(() => {
+    keepAspectRef.current = keepAspect;
+  }, [keepAspect]);
+  useEffect(() => {
+    rotateRef.current = rotate;
+  }, [rotate]);
+  useEffect(() => {
+    flipXRef.current = flipX;
+  }, [flipX]);
+  useEffect(() => {
+    flipYRef.current = flipY;
+  }, [flipY]);
+  useEffect(() => {
+    qualityRef.current = quality;
+  }, [quality]);
 
   const ext = file ? getExt(file.name) : "";
   const normalizedExt = normalizeExt(ext);
@@ -85,12 +135,36 @@ export default function EditPanel() {
     return h / w;
   }, [sourceWidth, sourceHeight, rotate]);
 
-  function resetResult() {
-    setEditedUrl(null);
+  function revokeRef(ref: React.MutableRefObject<string | null>) {
+    if (ref.current) {
+      URL.revokeObjectURL(ref.current);
+      ref.current = null;
+    }
+  }
+
+  function setSourceUrl(url: string) {
+    revokeRef(sourceUrlRef);
+    sourceUrlRef.current = url;
+    setSourcePreviewUrl(url);
+  }
+
+  function setEditedUrlValue(url: string) {
+    revokeRef(editedUrlRef);
+    editedUrlRef.current = url;
+    setEditedUrl(url);
+  }
+
+  function setDownloadUrlValue(url: string) {
+    revokeRef(downloadUrlRef);
+    downloadUrlRef.current = url;
+  }
+
+  function clearPreviews() {
+    setEditedUrlValue("");
     setEditedSize(null);
-    setStatus("idle");
-    setProgress(0);
+    setDownloadUrlValue("");
     setError("");
+    setPreviewLoading(false);
   }
 
   function resetImageSettings() {
@@ -108,15 +182,111 @@ export default function EditPanel() {
     setQuality(82);
   }
 
+  function runConversion() {
+    const f = fileRef.current;
+    if (!f) return;
+
+    const version = ++conversionVersionRef.current;
+
+    const tgt = targetRef.current;
+    const rMode = resizeModeRef.current;
+    const sPct = scalePctRef.current;
+    const w = widthRef.current;
+    const h = heightRef.current;
+    const kAspect = keepAspectRef.current;
+    const rot = rotateRef.current;
+    const fX = flipXRef.current;
+    const fY = flipYRef.current;
+    const qual = qualityRef.current;
+
+    setPreviewLoading(true);
+
+    convertFile(
+      f,
+      tgt,
+      {
+        scalePct: rMode === "percent" ? sPct : undefined,
+        width: rMode === "pixels" && w ? Number(w) : undefined,
+        height: rMode === "pixels" && h ? Number(h) : undefined,
+        keepAspect: kAspect,
+        rotate: rot,
+        flipX: fX,
+        flipY: fY,
+        quality: qual,
+      },
+      () => {},
+    )
+      .then((blob) => {
+        if (version !== conversionVersionRef.current) return;
+
+        if (blob.size === 0) {
+          if (version === conversionVersionRef.current) {
+            setError("変換結果が空です。別の形式を試してください。");
+          }
+          return;
+        }
+
+        const url = URL.createObjectURL(blob);
+
+        if (version !== conversionVersionRef.current) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        setEditedUrlValue(url);
+        setEditedSize(blob.size);
+        setDownloadUrlValue(url);
+        setError("");
+      })
+      .catch((err) => {
+        if (version !== conversionVersionRef.current) return;
+
+        console.error("Preview conversion failed:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "プレビュー生成に失敗しました。",
+        );
+      })
+      .finally(() => {
+        if (version === conversionVersionRef.current) {
+          setPreviewLoading(false);
+        }
+      });
+  }
+
+  function scheduleConversion() {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      runConversion();
+    }, DEBOUNCE_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      revokeRef(sourceUrlRef);
+      revokeRef(editedUrlRef);
+      revokeRef(downloadUrlRef);
+    };
+  }, []);
+
   function handleFile(f: File) {
     const sourceExt = getExt(f.name);
 
-    resetResult();
+    clearPreviews();
     resetImageSettings();
 
     if (getCategory(sourceExt) !== "image") {
       setFile(null);
-      setSourcePreviewUrl(null);
+      fileRef.current = null;
+      setSourceUrl("");
       setError("編集タブでは画像ファイルを選択してください。");
       return;
     }
@@ -124,22 +294,22 @@ export default function EditPanel() {
     const nextTargets = getImageEditTargets(sourceExt);
 
     setFile(f);
+    fileRef.current = f;
     setTarget(nextTargets[0] ?? "png");
     setSourcePreviewMode("native");
     setSourcePreviewLoading(false);
-    setSourcePreviewUrl(URL.createObjectURL(f));
-    setStatus("idle");
-    setProgress(0);
+    setSourceUrl(URL.createObjectURL(f));
     setError("");
+
+    scheduleConversion();
   }
 
   async function createConvertedSourcePreview() {
     if (!file) return;
 
-    // すでに変換プレビューを試した後なら、無限ループを避ける
     if (sourcePreviewMode === "converted") {
       setSourcePreviewLoading(false);
-      setSourcePreviewUrl(null);
+      setSourceUrl("");
       setError("この画像形式はプレビュー表示できませんでした。編集は試せます。");
       return;
     }
@@ -148,7 +318,6 @@ export default function EditPanel() {
       setSourcePreviewLoading(true);
       setSourcePreviewMode("converted");
 
-      // ブラウザで直接表示できない画像は、プレビュー用にPNGへ変換する
       const previewBlob = await convertFile(
         file,
         "png",
@@ -160,11 +329,11 @@ export default function EditPanel() {
         () => {},
       );
 
-      setSourcePreviewUrl(URL.createObjectURL(previewBlob));
+      setSourceUrl(URL.createObjectURL(previewBlob));
       setSourcePreviewLoading(false);
     } catch {
       setSourcePreviewLoading(false);
-      setSourcePreviewUrl(null);
+      setSourceUrl("");
       setError("元画像プレビューの生成に失敗しました。");
     }
   }
@@ -175,7 +344,6 @@ export default function EditPanel() {
     setSourceWidth(img.naturalWidth);
     setSourceHeight(img.naturalHeight);
 
-    // ファイル選択直後のみ、元画像のサイズを初期値として入れる
     setWidth((prev) => prev || String(img.naturalWidth));
     setHeight((prev) => prev || String(img.naturalHeight));
   }
@@ -188,6 +356,8 @@ export default function EditPanel() {
       const nextHeight = Math.round(Number(clean) * baseRatio);
       setHeight(String(nextHeight));
     }
+
+    scheduleConversion();
   }
 
   function handleHeightChange(value: string) {
@@ -198,6 +368,8 @@ export default function EditPanel() {
       const nextWidth = Math.round(Number(clean) / baseRatio);
       setWidth(String(nextWidth));
     }
+
+    scheduleConversion();
   }
 
   function handleRotate(nextRotate: number) {
@@ -211,64 +383,25 @@ export default function EditPanel() {
 
       setHeight(String(Math.round(Number(width) * ratio)));
     }
+
+    scheduleConversion();
   }
 
-  async function handleEdit() {
-    if (!file) return;
+  const handleDownload = useCallback(() => {
+    const url = downloadUrlRef.current;
+    if (!url) return;
 
-    setStatus("editing");
-    setProgress(0);
-    setError("");
-
-    try {
-      const blob = await convertFile(
-        file,
-        target,
-        {
-          scalePct: resizeMode === "percent" ? scalePct : undefined,
-          width: resizeMode === "pixels" && width ? Number(width) : undefined,
-          height:
-            resizeMode === "pixels" && height ? Number(height) : undefined,
-          keepAspect,
-          rotate,
-          flipX,
-          flipY,
-          quality,
-        },
-        (p) => {
-          setProgress(p);
-        },
-      );
-
-      setEditedUrl(URL.createObjectURL(blob));
-      setEditedSize(blob.size);
-      setProgress(1);
-      setStatus("done");
-    } catch (err) {
-      setStatus("error");
-      setError(err instanceof Error ? err.message : "編集に失敗しました。");
-    }
-  }
-
-  useEffect(() => {
-    return () => {
-      if (sourcePreviewUrl) {
-        URL.revokeObjectURL(sourcePreviewUrl);
-      }
-    };
-  }, [sourcePreviewUrl]);
-
-  useEffect(() => {
-    return () => {
-      if (editedUrl) {
-        URL.revokeObjectURL(editedUrl);
-      }
-    };
-  }, [editedUrl]);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = outName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [outName]);
 
   return (
     <section className="flex w-full flex-col items-center gap-4">
-      <DropZone file={file} onFile={handleFile} />
+      <DropZone file={file} onFile={handleFile} accept="image/*" />
 
       <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-[1fr_1.1fr]">
         {/* プレビュー */}
@@ -316,17 +449,30 @@ export default function EditPanel() {
           <div className="rounded-2xl border border-gray-200 bg-white p-4">
             <h2 className="text-sm font-bold text-gray-700">編集後</h2>
 
-            <div className="mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+            <div className="relative mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {editedUrl ? (
                 <img
                   src={editedUrl}
                   alt="編集後プレビュー"
-                  className="max-h-full max-w-full object-contain"
+                  onError={() => {
+                    setError(
+                      "編集後の画像を表示できませんでした。別の形式を試してください。",
+                    );
+                  }}
+                  className={`max-h-full max-w-full object-contain transition-opacity ${
+                    previewLoading ? "opacity-50" : "opacity-100"
+                  }`}
                 />
               ) : (
                 <span className="text-sm text-gray-400">
                   編集後のプレビュー
                 </span>
+              )}
+
+              {previewLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/50">
+                  <span className="text-sm text-gray-500">更新中…</span>
+                </div>
               )}
             </div>
 
@@ -347,10 +493,7 @@ export default function EditPanel() {
               <span>出力形式</span>
               <select
                 value={target}
-                onChange={(e) => {
-                  setTarget(e.target.value);
-                  resetResult();
-                }}
+                onChange={(e) => setTarget(e.target.value)}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base"
               >
                 {targets.map((t) => (
@@ -365,10 +508,7 @@ export default function EditPanel() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setResizeMode("percent");
-                    resetResult();
-                  }}
+                  onClick={() => setResizeMode("percent")}
                   className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
                     resizeMode === "percent"
                       ? "bg-green-600 text-white"
@@ -380,10 +520,7 @@ export default function EditPanel() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setResizeMode("pixels");
-                    resetResult();
-                  }}
+                  onClick={() => setResizeMode("pixels")}
                   className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
                     resizeMode === "pixels"
                       ? "bg-green-600 text-white"
@@ -402,10 +539,7 @@ export default function EditPanel() {
                     min={10}
                     max={200}
                     value={scalePct}
-                    onChange={(e) => {
-                      setScalePct(Number(e.target.value));
-                      resetResult();
-                    }}
+                    onChange={(e) => setScalePct(Number(e.target.value))}
                     className="w-full"
                   />
                   <span className="text-right tabular-nums">{scalePct}%</span>
@@ -416,10 +550,7 @@ export default function EditPanel() {
                     <span>幅</span>
                     <input
                       value={width}
-                      onChange={(e) => {
-                        handleWidthChange(e.target.value);
-                        resetResult();
-                      }}
+                      onChange={(e) => handleWidthChange(e.target.value)}
                       inputMode="numeric"
                       placeholder="例: 1200"
                       className="w-full rounded-lg border border-gray-300 px-3 py-2"
@@ -430,10 +561,7 @@ export default function EditPanel() {
                     <span>高さ</span>
                     <input
                       value={height}
-                      onChange={(e) => {
-                        handleHeightChange(e.target.value);
-                        resetResult();
-                      }}
+                      onChange={(e) => handleHeightChange(e.target.value)}
                       inputMode="numeric"
                       placeholder="例: 800"
                       className="w-full rounded-lg border border-gray-300 px-3 py-2"
@@ -444,10 +572,7 @@ export default function EditPanel() {
                     <input
                       type="checkbox"
                       checked={keepAspect}
-                      onChange={(e) => {
-                        setKeepAspect(e.target.checked);
-                        resetResult();
-                      }}
+                      onChange={(e) => setKeepAspect(e.target.checked)}
                     />
                     縦横比を固定
                   </label>
@@ -463,10 +588,7 @@ export default function EditPanel() {
                   <button
                     key={r}
                     type="button"
-                    onClick={() => {
-                      handleRotate(r);
-                      resetResult();
-                    }}
+                    onClick={() => handleRotate(r)}
                     className={`rounded-lg px-2 py-2 text-sm font-medium ${
                       rotate === r
                         ? "bg-green-600 text-white"
@@ -485,10 +607,7 @@ export default function EditPanel() {
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setFlipX((v) => !v);
-                    resetResult();
-                  }}
+                  onClick={() => setFlipX((v) => !v)}
                   className={`rounded-lg px-2 py-2 text-sm font-medium ${
                     flipX
                       ? "bg-green-600 text-white"
@@ -500,10 +619,7 @@ export default function EditPanel() {
 
                 <button
                   type="button"
-                  onClick={() => {
-                    setFlipY((v) => !v);
-                    resetResult();
-                  }}
+                  onClick={() => setFlipY((v) => !v)}
                   className={`rounded-lg px-2 py-2 text-sm font-medium ${
                     flipY
                       ? "bg-green-600 text-white"
@@ -523,10 +639,7 @@ export default function EditPanel() {
                   min={1}
                   max={100}
                   value={quality}
-                  onChange={(e) => {
-                    setQuality(Number(e.target.value));
-                    resetResult();
-                  }}
+                  onChange={(e) => setQuality(Number(e.target.value))}
                   className="w-full"
                 />
                 <span className="text-right tabular-nums">{quality}%</span>
@@ -535,30 +648,33 @@ export default function EditPanel() {
 
             <button
               type="button"
-              onClick={handleEdit}
-              disabled={!file || status === "editing"}
+              onClick={handleDownload}
+              disabled={!downloadUrlRef.current || previewLoading}
               className="rounded-xl bg-green-600 px-7 py-3 font-medium text-white shadow hover:bg-green-700 disabled:opacity-40"
             >
-              {status === "editing" ? "編集中…" : "編集してダウンロード"}
+              ダウンロード
             </button>
 
-            <div className="h-4 text-center text-xs text-gray-500">
-              {status === "editing"
-                ? `編集中 ${Math.round(progress * 100)}%`
-                : status === "done"
-                  ? "完了"
-                  : ""}
-            </div>
+            {previewLoading && (
+              <div className="h-4 text-center text-xs text-gray-500">
+                プレビュー更新中…
+              </div>
+            )}
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+                {error}
+              </p>
+            )}
 
-            <DownloadArea url={editedUrl} name={outName} />
+            <DownloadArea url={downloadUrlRef.current} name={outName} />
           </div>
         </div>
       </div>
 
       <p className="max-w-2xl text-center text-xs leading-5 text-gray-400">
-        ※ 編集タブは画像編集から対応しています。PDFページ編集は次のステップで追加します。
+        ※ 設定を変更すると自動的にプレビューが更新されます。
+        PDFページ編集は次のステップで追加します。
       </p>
     </section>
   );

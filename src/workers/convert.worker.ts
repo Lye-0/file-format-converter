@@ -35,9 +35,10 @@ async function getVips() {
       const mod = await dynamicImport("/vips/vips-es6.js");
       const Vips = mod.default ?? (mod as any);
 
-      return await Vips({
+      const vips = await Vips({
         locateFile: (file: string) => `/vips/${file}`,
       });
+      return vips;
     })();
   }
 
@@ -80,16 +81,46 @@ function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
     out = out.rot(vips.Angle.d270);
   }
 
+  let applied = false;
+
   try {
     if (opts.flipX) {
-      out = out.flip(vips.Direction.horizontal);
-    }
-
-    if (opts.flipY) {
-      out = out.flip(vips.Direction.vertical);
+      out = out.flipHoriz();
+      applied = true;
     }
   } catch {
-    // wasm-vips のビルド差異で flip が使えない場合は無視
+    // noop
+  }
+
+  if (!applied) {
+    try {
+      if (opts.flipX) {
+        out = out.flip(vips.Direction.HORIZONTAL);
+      }
+    } catch {
+      // noop
+    }
+  }
+
+  applied = false;
+
+  try {
+    if (opts.flipY) {
+      out = out.flipVert();
+      applied = true;
+    }
+  } catch {
+    // noop
+  }
+
+  if (!applied) {
+    try {
+      if (opts.flipY) {
+        out = out.flip(vips.Direction.VERTICAL);
+      }
+    } catch {
+      // noop
+    }
   }
 
   const requestedWidth =
@@ -131,42 +162,62 @@ const api = {
    * 画像 → 画像 / ICO
    */
   async convertImage(buffer: ArrayBuffer, target: string, opts: ImageOpts = {}) {
-    const vips = await getVips();
+    let img: any = null;
 
-    let img = vips.Image.newFromBuffer(new Uint8Array(buffer));
-    img = applyImageTransforms(img, vips, opts);
+    try {
+      const vips = await getVips();
 
-    // ICO
-    if (target === "ico") {
-      const maxDim = Math.max(img.width, img.height);
+      img = vips.Image.newFromBuffer(new Uint8Array(buffer));
+      img = applyImageTransforms(img, vips, opts);
 
-      if (maxDim > 256) {
-        img = img.resize(256 / maxDim);
+      if (target === "ico") {
+        const maxDim = Math.max(img.width, img.height);
+
+        if (maxDim > 256) {
+          img = img.resize(256 / maxDim);
+        }
+
+        const png: Uint8Array = img.writeToBuffer(".png");
+        const ico = pngToIco(png, img.width, img.height);
+
+        img.delete();
+        img = null;
+
+        const ab = ico.slice().buffer;
+        return Comlink.transfer(ab, [ab]);
       }
 
-      const png: Uint8Array = img.writeToBuffer(".png");
-      const ico = pngToIco(png, img.width, img.height);
+      const ext = target === "jpeg" ? "jpg" : target;
+      const q = opts.quality ?? 82;
+      const options: Record<string, unknown> = {};
+
+      if (["jpg", "webp", "avif", "heic", "heif"].includes(ext)) {
+        options.Q = q;
+      }
+
+      const out: Uint8Array = img.writeToBuffer("." + ext, options);
 
       img.delete();
+      img = null;
 
-      const ab = ico.slice().buffer;
+      if (out.length === 0) {
+        throw new Error(`出力形式 ${target} への変換結果が空です。`);
+      }
+
+      const ab = out.slice().buffer;
       return Comlink.transfer(ab, [ab]);
+    } catch (err) {
+      if (img) {
+        try {
+          img.delete();
+        } catch {
+          // ignore cleanup error
+        }
+      }
+      throw new Error(
+        `画像処理に失敗しました: ${err instanceof Error ? err.message : "不明なエラー"}`,
+      );
     }
-
-    const ext = target === "jpeg" ? "jpg" : target;
-    const q = opts.quality ?? 82;
-    const options: Record<string, unknown> = {};
-
-    if (["jpg", "webp", "avif", "heic", "heif"].includes(ext)) {
-      options.Q = q;
-    }
-
-    const out: Uint8Array = img.writeToBuffer("." + ext, options);
-
-    img.delete();
-
-    const ab = out.slice().buffer;
-    return Comlink.transfer(ab, [ab]);
   },
 
   /**

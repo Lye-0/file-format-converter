@@ -5,9 +5,11 @@ import { useRef, useState } from "react";
 export default function DropZone({
   file,
   onFile,
+  accept,
 }: {
   file: File | null;
   onFile: (f: File) => void;
+  accept?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
@@ -34,6 +36,7 @@ export default function DropZone({
         ref={inputRef}
         type="file"
         className="hidden"
+        accept={accept}
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) onFile(f);
