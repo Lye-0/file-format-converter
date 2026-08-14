@@ -44,6 +44,11 @@ interface PdfDocGroup {
   pages: PdfPageItem[];
 }
 
+interface PageDragSource {
+  groupId: string;
+  pageIndex: number;
+}
+
 /* ── Helpers ── */
 
 let nextId = 0;
@@ -152,6 +157,10 @@ function PdfGroupBlock({
   totalGroups,
   pdfCache,
   thumbUrls,
+  pageDragSource,
+  onPageDragStart,
+  onPageDragEnd,
+  onPageMove,
   onSplit,
   onDelete,
   onUpdatePages,
@@ -163,6 +172,15 @@ function PdfGroupBlock({
   totalGroups: number;
   pdfCache: Map<string, any>;
   thumbUrls: Set<string>;
+  pageDragSource: PageDragSource | null;
+  onPageDragStart: (groupId: string, pageIndex: number) => void;
+  onPageDragEnd: () => void;
+  onPageMove: (
+    sourceGroupId: string,
+    sourcePageIndex: number,
+    targetGroupId: string,
+    targetPosition: number,
+  ) => void;
   onSplit: (groupId: string, splitIndex: number) => void;
   onDelete: (groupId: string) => void;
   onUpdatePages: (groupId: string, pages: PdfPageItem[]) => void;
@@ -172,12 +190,12 @@ function PdfGroupBlock({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [splitTarget, setSplitTarget] = useState<number | null>(null);
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
-  const [dragSourceIndex, setDragSourceIndex] = useState<number | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
 
   const pages = group.pages;
   const selectedIndex = pages.findIndex((p) => p.id === selectedId);
+  const isSource = pageDragSource?.groupId === group.id;
 
   function selectPage(id: string) {
     setSelectedId((prev) => (prev === id ? null : id));
@@ -214,46 +232,69 @@ function PdfGroupBlock({
     }
   }
 
-  function handleDragStart(index: number) {
-    setDragSourceIndex(index);
+  /* ── Page drag handlers ── */
+
+  function handlePageDragStart(index: number) {
+    onPageDragStart(group.id, index);
   }
 
-  function handleDragOverFn(e: React.DragEvent, index: number) {
+  function handlePageDragOverCard(e: React.DragEvent, index: number) {
     e.preventDefault();
-    if (dragSourceIndex === null) return;
+    e.stopPropagation();
+    if (!pageDragSource) return;
 
     const card = e.currentTarget;
     const rect = card.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const isLeftHalf = e.clientX < centerX;
 
-    // Visual position (skip dragged card)
-    const vi = index < dragSourceIndex ? index : index - 1;
-    const dropPos = isLeftHalf ? vi : vi + 1;
-
-    setDropIndicatorIndex(dropPos);
+    if (isSource) {
+      // Same-block: account for removed page
+      const vi = index < pageDragSource.pageIndex ? index : index - 1;
+      setDropIndicatorIndex(isLeftHalf ? vi : vi + 1);
+    } else {
+      // Cross-block: direct position in target
+      setDropIndicatorIndex(isLeftHalf ? index : index + 1);
+    }
   }
 
-  function handleDropReorder() {
-    if (dragSourceIndex === null || dropIndicatorIndex === null) {
-      setDragSourceIndex(null);
-      setDropIndicatorIndex(null);
+  function handlePageDragOverGrid(e: React.DragEvent) {
+    e.preventDefault();
+    if (!pageDragSource) return;
+    setDropIndicatorIndex(pages.length);
+  }
+
+  function handlePageDragLeave(e: React.DragEvent) {
+    // Only clear if leaving the grid entirely
+    const related = e.relatedTarget as HTMLElement;
+    if (related && e.currentTarget.contains(related)) return;
+    setDropIndicatorIndex(null);
+  }
+
+  function handlePageDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!pageDragSource || dropIndicatorIndex === null) {
+      onPageDragEnd();
       return;
     }
 
-    const next = [...pages];
-    const [moved] = next.splice(dragSourceIndex, 1);
-    next.splice(dropIndicatorIndex, 0, moved);
-    onUpdatePages(group.id, next);
-
-    setDragSourceIndex(null);
+    onPageMove(
+      pageDragSource.groupId,
+      pageDragSource.pageIndex,
+      group.id,
+      dropIndicatorIndex,
+    );
     setDropIndicatorIndex(null);
+    onPageDragEnd();
   }
 
-  function handleDragEnd() {
-    setDragSourceIndex(null);
+  function handlePageDragEnd() {
     setDropIndicatorIndex(null);
+    onPageDragEnd();
   }
+
+  /* ── Split ── */
 
   function confirmSplit() {
     if (splitTarget === null || splitTarget < 0 || splitTarget >= pages.length) {
@@ -264,6 +305,8 @@ function PdfGroupBlock({
     setSplitTarget(null);
     setSelectedId(null);
   }
+
+  /* ── Add external PDF ── */
 
   function handleAddPdf() {
     const input = document.createElement("input");
@@ -298,6 +341,8 @@ function PdfGroupBlock({
     input.click();
   }
 
+  /* ── Download ── */
+
   async function downloadGroup() {
     setExporting(true);
     try {
@@ -318,8 +363,14 @@ function PdfGroupBlock({
     }
   }
 
+  const isDropTarget = pageDragSource && !isSource;
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+    <div
+      className={`rounded-2xl border-2 bg-white p-4 transition sm:p-5 ${
+        isDropTarget ? "border-green-300" : "border-gray-200"
+      }`}
+    >
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -385,41 +436,48 @@ function PdfGroupBlock({
       </div>
 
       {/* Page grid */}
-      <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 md:grid-cols-5">
+      <div
+        className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 md:grid-cols-5"
+        onDragOver={handlePageDragOverGrid}
+        onDragLeave={handlePageDragLeave}
+        onDrop={handlePageDrop}
+      >
         {pages.map((page, index) => {
           const isSelected = page.id === selectedId;
-          const isDragging = dragSourceIndex === index;
+          const isDragging = isSource && pageDragSource?.pageIndex === index;
 
-          // Calculate if this card should show the indicator
-          const vi = index < (dragSourceIndex ?? Infinity) ? index : index - 1;
+          const vi = isSource
+            ? index < (pageDragSource?.pageIndex ?? Infinity)
+              ? index
+              : index - 1
+            : index;
           const showLeftIndicator =
-            dragSourceIndex !== null &&
+            pageDragSource !== null &&
             dropIndicatorIndex !== null &&
             !isDragging &&
             vi === dropIndicatorIndex;
           const showRightIndicator =
-            dragSourceIndex !== null &&
+            pageDragSource !== null &&
             dropIndicatorIndex !== null &&
             !isDragging &&
             vi + 1 === dropIndicatorIndex;
 
           return (
             <div key={page.id} className="relative">
-              {/* Left insertion indicator */}
               {showLeftIndicator && (
                 <div className="absolute -left-[5px] top-1 bottom-1 w-[3px] rounded-full bg-green-500" />
               )}
 
               <div
                 draggable
-                onDragStart={() => handleDragStart(index)}
-                onDragOver={(e) => handleDragOverFn(e, index)}
-                onDragLeave={() => setDropIndicatorIndex(null)}
+                onDragStart={() => handlePageDragStart(index)}
+                onDragOver={(e) => handlePageDragOverCard(e, index)}
                 onDrop={(e) => {
                   e.preventDefault();
-                  handleDropReorder();
+                  e.stopPropagation();
+                  handlePageDrop(e);
                 }}
-                onDragEnd={handleDragEnd}
+                onDragEnd={handlePageDragEnd}
                 onClick={() => selectPage(page.id)}
                 className={`group relative cursor-pointer rounded-xl border-2 bg-white p-1.5 transition sm:p-2 ${
                   isDragging
@@ -456,7 +514,6 @@ function PdfGroupBlock({
                 </div>
               </div>
 
-              {/* Right insertion indicator */}
               {showRightIndicator && (
                 <div className="absolute -right-[5px] top-1 bottom-1 w-[3px] rounded-full bg-green-500" />
               )}
@@ -528,6 +585,7 @@ export default function PdfEditPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [pageDragSource, setPageDragSource] = useState<PageDragSource | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfCache = useRef<Map<string, any>>(new Map());
@@ -621,6 +679,63 @@ export default function PdfEditPanel() {
 
   function handleDeleteGroup(groupId: string) {
     setGroups((prev) => prev.filter((g) => g.id !== groupId));
+  }
+
+  /* ── Page move between groups ── */
+
+  function handlePageDragStart(groupId: string, pageIndex: number) {
+    setPageDragSource({ groupId, pageIndex });
+  }
+
+  function handlePageDragEnd() {
+    setPageDragSource(null);
+  }
+
+  function handlePageMove(
+    sourceGroupId: string,
+    sourcePageIndex: number,
+    targetGroupId: string,
+    targetPosition: number,
+  ) {
+    setGroups((prev) => {
+      const sourceGroup = prev.find((g) => g.id === sourceGroupId);
+      if (!sourceGroup) return prev;
+
+      const page = sourceGroup.pages[sourcePageIndex];
+      if (!page) return prev;
+
+      // Same-block reorder
+      if (sourceGroupId === targetGroupId) {
+        const next = [...prev];
+        const idx = next.findIndex((g) => g.id === sourceGroupId);
+        const pages = [...next[idx].pages];
+        const [moved] = pages.splice(sourcePageIndex, 1);
+        pages.splice(targetPosition, 0, moved);
+        next[idx] = { ...next[idx], pages };
+        return next;
+      }
+
+      // Cross-block move
+      const newSourcePages = sourceGroup.pages.filter((_, i) => i !== sourcePageIndex);
+      const targetGroup = prev.find((g) => g.id === targetGroupId);
+      if (!targetGroup) return prev;
+
+      const newTargetPages = [...targetGroup.pages];
+      newTargetPages.splice(targetPosition, 0, page);
+
+      let next = prev.map((g) => {
+        if (g.id === sourceGroupId) return { ...g, pages: newSourcePages };
+        if (g.id === targetGroupId) return { ...g, pages: newTargetPages };
+        return g;
+      });
+
+      // Remove empty source group
+      if (newSourcePages.length === 0) {
+        next = next.filter((g) => g.id !== sourceGroupId);
+      }
+
+      return next;
+    });
   }
 
   /* ── Download all as ZIP ── */
@@ -727,6 +842,10 @@ export default function PdfEditPanel() {
                 totalGroups={groups.length}
                 pdfCache={pdfCache.current}
                 thumbUrls={thumbUrls.current}
+                pageDragSource={pageDragSource}
+                onPageDragStart={handlePageDragStart}
+                onPageDragEnd={handlePageDragEnd}
+                onPageMove={handlePageMove}
                 onSplit={handleSplit}
                 onDelete={handleDeleteGroup}
                 onUpdatePages={handleUpdatePages}
@@ -736,7 +855,7 @@ export default function PdfEditPanel() {
             ))}
           </div>
 
-          {/* Global download all (shown below groups too) */}
+          {/* Global download all */}
           {hasMultiple && (
             <div className="mt-4 flex justify-center">
               <button
