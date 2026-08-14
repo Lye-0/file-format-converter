@@ -5,7 +5,6 @@ import DropZone from "@/components/DropZone";
 import FormatSelect from "@/components/FormatSelect";
 import ArrowProgress from "@/components/ArrowProgress";
 import DownloadArea from "@/components/DownloadArea";
-import ImageOptionsBlock from "@/components/ImageOptionsBlock";
 import { convertFile } from "@/lib/convert";
 import {
   getCategory,
@@ -24,8 +23,6 @@ export default function ConvertPanel() {
   const [progress, setProgress] = useState(0);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [scalePct, setScalePct] = useState(100);
-  const [rotate, setRotate] = useState(0);
 
   const fauxRef = useRef<number | null>(null);
 
@@ -47,8 +44,6 @@ export default function ConvertPanel() {
     setTarget(availableTargets[0] ?? "");
     setStatus("idle");
     setProgress(0);
-    setScalePct(100);
-    setRotate(0);
 
     setError(
       getCategory(sourceExt) === "unsupported" ? "未対応の形式です" : "",
@@ -90,10 +85,7 @@ export default function ConvertPanel() {
       const blob = await convertFile(
         file,
         target,
-        {
-          scalePct,
-          rotate,
-        },
+        {},
         (p) => {
           if (!useFauxProgress) {
             setProgress(p);
@@ -168,7 +160,7 @@ export default function ConvertPanel() {
             />
           </div>
 
-          {/* スマホ: オプションブロック / PC: プルダウンのみ */}
+          {/* 変換先セレクト */}
           <div className="w-full rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:w-auto sm:border-0 sm:bg-transparent sm:p-0">
             <div className="flex items-center justify-between gap-3 sm:flex sm:justify-center">
               <span className="shrink-0 text-sm font-medium text-gray-600 sm:hidden">
@@ -183,17 +175,6 @@ export default function ConvertPanel() {
               />
             </div>
 
-            {/* スマホ用の画像設定 */}
-            {cat === "image" && (
-              <ImageOptionsBlock
-                scalePct={scalePct}
-                rotate={rotate}
-                onScaleChange={setScalePct}
-                onRotateChange={setRotate}
-                variant="mobile"
-              />
-            )}
-
             {/* PC用: プルダウンの下に横向き矢印 */}
             <div className="hidden sm:block">
               <ArrowProgress
@@ -204,22 +185,11 @@ export default function ConvertPanel() {
           </div>
         </div>
 
-        {/* PC用の出力欄。PC表示は従来通り右側 */}
+        {/* PC用の出力欄 */}
         <div className="hidden sm:block">
           <DownloadArea url={resultUrl} name={outName} />
         </div>
       </div>
-
-      {/* PC用の画像設定。PC表示は従来に近い位置を維持 */}
-      {cat === "image" && (
-        <ImageOptionsBlock
-          scalePct={scalePct}
-          rotate={rotate}
-          onScaleChange={setScalePct}
-          onRotateChange={setRotate}
-          variant="desktop"
-        />
-      )}
 
       {/* スマホ: 変換ボタンを出力欄の上に配置 */}
       <div className="flex sm:hidden">{convertButton}</div>

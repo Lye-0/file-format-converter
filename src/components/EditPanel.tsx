@@ -488,7 +488,7 @@ export default function EditPanel() {
               <FileInfoRow label="ファイル名" value={file.name} />
               <FileInfoRow label="形式" value={normalizedExt.toUpperCase()} />
               <FileInfoRow
-                label="解像度"
+                label="画像サイズ"
                 value={
                   sourceWidth && sourceHeight
                     ? `${sourceWidth} × ${sourceHeight}px`
@@ -530,7 +530,7 @@ export default function EditPanel() {
               <FileInfoRow label="ファイル名" value={outName} />
               <FileInfoRow label="形式" value={target.toUpperCase()} />
               <FileInfoRow
-                label="解像度"
+                label="画像サイズ"
                 value={`${outDim.w} × ${outDim.h}px`}
               />
               <FileInfoRow
@@ -581,7 +581,7 @@ export default function EditPanel() {
           {/* Resolution */}
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
-              解像度
+              画像サイズ
             </h4>
             <div className="mt-2">
               <div className="flex gap-2">
@@ -752,10 +752,7 @@ export default function EditPanel() {
           {error}
         </p>
       )}
-
-      <p className="mt-4 text-left text-xs leading-5 text-gray-400 sm:text-center">
-        ※ 設定を変更すると自動的にプレビューが更新されます。
-      </p>
+      
     </section>
   );
 }

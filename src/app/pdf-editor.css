@@ -60,6 +60,18 @@
     padding: 5px 10px !important;
     line-height: 1.3 !important;
     border-radius: 8px !important;
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    color: #4b5563 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-join:hover {
+    background: #f0fdf4 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
   }
 
   .pdf-toolbar {
@@ -152,5 +164,24 @@
     color: #9ca3af !important;
     cursor: not-allowed !important;
     opacity: 0.6 !important;
+  }
+
+  .pdf-btn-join {
+    font-size: 13px !important;
+    padding: 6px 14px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    color: #4b5563 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-join:hover {
+    background: #f0fdf4 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
   }
 }

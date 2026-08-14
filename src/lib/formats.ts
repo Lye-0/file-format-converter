@@ -17,7 +17,7 @@ const IMAGE_INPUT = [
 ];
 
 // 画像の出力形式
-// 解像度変更・回転だけの用途にも使えるように、
+// 画像サイズ変更・回転だけの用途にも使えるように、
 // 入力と同じ拡張子も選択肢に含める。
 const IMAGE_OUTPUT = [
   "png",
@@ -64,7 +64,7 @@ export function getTargets(ext: string): string[] {
     /**
      * 重要:
      * 以前は IMAGE_OUTPUT.filter((f) => f !== normalized) としていたが、
-     * 解像度変更・回転のみでも使えるように、同じ形式も残す。
+     * 画像サイズ変更・回転のみでも使えるように、同じ形式も残す。
      *
      * 例:
      * jpg → jpg
@@ -73,7 +73,7 @@ export function getTargets(ext: string): string[] {
      */
     const outputs = [...IMAGE_OUTPUT];
 
-    // SVGはベクター形式なので「SVGのまま解像度変更」は基本的に意味が違う。
+    // SVGはベクター形式なので「SVGのまま画像サイズ変更」は基本的に意味が違う。
     // そのため SVG入力時は SVG出力を出さず、PNG/JPG/WebP等への変換にする。
     // 必要になれば後で resvg-wasm などでSVG処理を強化する。
     if (normalized === "svg") {
@@ -83,7 +83,7 @@ export function getTargets(ext: string): string[] {
     // よく使う特殊出力
     outputs.push("ico", "pdf");
 
-    // 入力形式を先頭に出すと「解像度だけ変更」が分かりやすい
+    // 入力形式を先頭に出すと「画像サイズだけ変更」が分かりやすい
     const unique = Array.from(new Set(outputs));
 
     if (unique.includes(normalized)) {
