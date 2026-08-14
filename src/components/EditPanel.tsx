@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DropZone from "@/components/DropZone";
 import DownloadArea from "@/components/DownloadArea";
+import Slider from "@/components/Slider";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
 
@@ -139,6 +140,13 @@ export default function EditPanel() {
   useEffect(() => { flipXRef.current = flipX; }, [flipX]);
   useEffect(() => { flipYRef.current = flipY; }, [flipY]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
+
+  // 設定が変わったら自動でプレビュー更新
+  useEffect(() => {
+    if (!fileRef.current) return;
+    scheduleConversion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, resizeMode, scalePct, width, height, keepAspect, rotate, flipX, flipY, quality]);
 
   const ext = file ? getExt(file.name) : "";
 
@@ -363,7 +371,6 @@ export default function EditPanel() {
     if (keepAspect && baseRatio && clean) {
       setHeight(String(Math.round(Number(clean) * baseRatio)));
     }
-    scheduleConversion();
   }
 
   function handleHeightChange(value: string) {
@@ -372,7 +379,6 @@ export default function EditPanel() {
     if (keepAspect && baseRatio && clean) {
       setWidth(String(Math.round(Number(clean) / baseRatio)));
     }
-    scheduleConversion();
   }
 
   function handleRotate(nextRotate: number) {
@@ -384,7 +390,6 @@ export default function EditPanel() {
       const ratio = h / w;
       setHeight(String(Math.round(Number(width) * ratio)));
     }
-    scheduleConversion();
   }
 
   const handleDownload = useCallback(() => {
@@ -398,38 +403,6 @@ export default function EditPanel() {
     document.body.removeChild(a);
   }, [outName]);
 
-  /* ---------- UI helpers ---------- */
-
-  function BlockCard({
-    title,
-    children,
-  }: {
-    title: string;
-    children: React.ReactNode;
-  }) {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <h3 className="text-sm font-bold text-gray-700">{title}</h3>
-        <div className="mt-3">{children}</div>
-      </div>
-    );
-  }
-
-  function SettingBlock({
-    title,
-    children,
-  }: {
-    title: string;
-    children: React.ReactNode;
-  }) {
-    return (
-      <div className="rounded-xl bg-white p-4">
-        <h3 className="text-sm font-bold text-gray-700">{title}</h3>
-        <div className="mt-3">{children}</div>
-      </div>
-    );
-  }
-
   return (
     <section className="flex w-full flex-col items-center gap-4">
       <DropZone file={file} onFile={handleFile} accept="image/*" />
@@ -437,8 +410,10 @@ export default function EditPanel() {
       <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-[1fr_1.1fr]">
         {/* ---- プレビュー列 ---- */}
         <div className="flex flex-col gap-4">
-          <BlockCard title="元画像">
-            <div className="flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+          {/* 元画像 */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">元画像</h3>
+            <div className="mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {sourcePreviewLoading ? (
                 <span className="text-sm text-gray-400">プレビュー生成中…</span>
               ) : sourcePreviewUrl ? (
@@ -465,10 +440,12 @@ export default function EditPanel() {
                 )}
               </div>
             )}
-          </BlockCard>
+          </div>
 
-          <BlockCard title="編集後">
-            <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+          {/* 編集後 */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">編集後</h3>
+            <div className="relative mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {editedUrl ? (
                 <img
                   src={editedUrl}
@@ -515,13 +492,15 @@ export default function EditPanel() {
                 </span>
               </div>
             </div>
-          </BlockCard>
+          </div>
         </div>
 
         {/* ---- 設定列 ---- */}
         <div className="flex flex-col gap-4">
           {/* 出力形式 */}
-          <SettingBlock title="出力形式">
+          <div className="rounded-xl bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">出力形式</h3>
+            <div className="mt-3">
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value)}
@@ -533,10 +512,13 @@ export default function EditPanel() {
                 </option>
               ))}
             </select>
-          </SettingBlock>
+            </div>
+          </div>
 
           {/* 解像度変換 */}
-          <SettingBlock title="解像度">
+          <div className="rounded-xl bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">解像度</h3>
+            <div className="mt-3">
             <div className="mb-3 flex gap-2">
               <button
                 type="button"
@@ -563,18 +545,15 @@ export default function EditPanel() {
             </div>
 
             {resizeMode === "percent" ? (
-              <label className="grid grid-cols-[4rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
-                <span>サイズ</span>
-                <input
-                  type="range"
-                  min={10}
-                  max={200}
-                  value={scalePct}
-                  onChange={(e) => setScalePct(Number(e.target.value))}
-                  className="w-full"
-                />
-                <span className="text-right tabular-nums">{scalePct}%</span>
-              </label>
+              <Slider
+                id="scale-slider"
+                label="サイズ"
+                value={scalePct}
+                min={10}
+                max={200}
+                onChange={setScalePct}
+                suffix="%"
+              />
             ) : (
               <div className="flex flex-col gap-3">
                 <label className="grid grid-cols-[4rem_1fr] items-center gap-2 text-sm text-gray-600">
@@ -620,11 +599,13 @@ export default function EditPanel() {
                 </span>
               </div>
             )}
-          </SettingBlock>
+            </div>
+          </div>
 
           {/* 回転 */}
-          <SettingBlock title="回転">
-            <div className="grid grid-cols-4 gap-2">
+          <div className="rounded-xl bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">回転</h3>
+            <div className="mt-3 grid grid-cols-4 gap-2">
               {[0, 90, 180, 270].map((r) => (
                 <button
                   key={r}
@@ -640,11 +621,12 @@ export default function EditPanel() {
                 </button>
               ))}
             </div>
-          </SettingBlock>
+          </div>
 
           {/* 反転 */}
-          <SettingBlock title="反転">
-            <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-white p-4">
+            <h3 className="text-sm font-bold text-gray-700">反転</h3>
+            <div className="mt-3 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setFlipX((v) => !v)}
@@ -664,24 +646,24 @@ export default function EditPanel() {
                 上下反転
               </button>
             </div>
-          </SettingBlock>
+          </div>
 
           {/* 品質 */}
           {showQuality && (
-            <SettingBlock title="品質">
-              <label className="grid grid-cols-[4rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
-                <span>JPEG</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={quality}
-                  onChange={(e) => setQuality(Number(e.target.value))}
-                  className="w-full"
-                />
-                <span className="text-right tabular-nums">{quality}%</span>
-              </label>
-            </SettingBlock>
+            <div className="rounded-xl bg-white p-4">
+              <h3 className="text-sm font-bold text-gray-700">品質</h3>
+              <div className="mt-3">
+              <Slider
+                id="quality-slider"
+                label="JPEG"
+                value={quality}
+                min={1}
+                max={100}
+                onChange={setQuality}
+                suffix="%"
+              />
+              </div>
+            </div>
           )}
 
           {/* ダウンロード */}

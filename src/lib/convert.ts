@@ -3,6 +3,7 @@
 import * as Comlink from "comlink";
 import type { WorkerApi } from "@/workers/convert.worker";
 import { getCategory, getExt, MIME } from "./formats";
+import { flipImage } from "./flipImage";
 
 let remote: Comlink.Remote<WorkerApi> | null = null;
 
@@ -40,7 +41,11 @@ export async function convertFile(
 
   if (cat === "image") {
     const api = getRemote();
-    const buf = await file.arrayBuffer();
+    let buf = await file.arrayBuffer();
+
+    if (opts.flipX || opts.flipY) {
+      buf = await flipImage(buf, opts.flipX ?? false, opts.flipY ?? false);
+    }
 
     if (target === "pdf") {
       const out = (await api.imageToPdf(buf, opts)) as ArrayBuffer;
