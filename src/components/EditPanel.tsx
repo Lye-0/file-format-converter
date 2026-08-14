@@ -10,7 +10,6 @@ type ResizeMode = "percent" | "pixels";
 type PreviewMode = "native" | "converted";
 
 const IMAGE_EDIT_OUTPUTS = ["png", "jpg", "webp", "avif", "gif", "bmp", "tiff"];
-
 const DEBOUNCE_MS = 300;
 
 function formatBytes(bytes: number) {
@@ -22,12 +21,64 @@ function formatBytes(bytes: number) {
 function getImageEditTargets(ext: string) {
   const normalized = normalizeExt(ext);
   const outputs = [...IMAGE_EDIT_OUTPUTS];
-
   if (outputs.includes(normalized)) {
     return [normalized, ...outputs.filter((f) => f !== normalized)];
   }
-
   return outputs;
+}
+
+function calcOutputDimensions(
+  srcW: number | null,
+  srcH: number | null,
+  rotate: number,
+  resizeMode: ResizeMode,
+  scalePct: number,
+  pxW: string,
+  pxH: string,
+  keepAspect: boolean,
+) {
+  if (!srcW || !srcH) return { w: 0, h: 0 };
+
+  let w: number;
+  let h: number;
+
+  if (resizeMode === "percent") {
+    w = Math.round(srcW * (scalePct / 100));
+    h = Math.round(srcH * (scalePct / 100));
+  } else {
+    const numW = parseInt(pxW, 10);
+    const numH = parseInt(pxH, 10);
+    if (keepAspect && srcW && srcH) {
+      const ratio = srcH / srcW;
+      if (numW && !numH) {
+        w = numW;
+        h = Math.round(numW * ratio);
+      } else if (numH && !numW) {
+        w = Math.round(numH / ratio);
+        h = numH;
+      } else if (numW && numH) {
+        w = numW;
+        h = numH;
+      } else {
+        w = srcW;
+        h = srcH;
+      }
+    } else {
+      w = numW || srcW;
+      h = numH || srcH;
+    }
+  }
+
+  if (rotate === 90 || rotate === 270) {
+    return { w: h, h: w };
+  }
+  return { w, h };
+}
+
+function getOutFileName(file: File | null, target: string) {
+  if (!file) return `edited.${target}`;
+  const base = file.name.replace(/\.[^.]+$/, "");
+  return `${base}_edited.${target}`;
 }
 
 export default function EditPanel() {
@@ -78,39 +129,18 @@ export default function EditPanel() {
   const debounceTimerRef = useRef<number | null>(null);
   const conversionVersionRef = useRef(0);
 
-  useEffect(() => {
-    targetRef.current = target;
-  }, [target]);
-  useEffect(() => {
-    resizeModeRef.current = resizeMode;
-  }, [resizeMode]);
-  useEffect(() => {
-    scalePctRef.current = scalePct;
-  }, [scalePct]);
-  useEffect(() => {
-    widthRef.current = width;
-  }, [width]);
-  useEffect(() => {
-    heightRef.current = height;
-  }, [height]);
-  useEffect(() => {
-    keepAspectRef.current = keepAspect;
-  }, [keepAspect]);
-  useEffect(() => {
-    rotateRef.current = rotate;
-  }, [rotate]);
-  useEffect(() => {
-    flipXRef.current = flipX;
-  }, [flipX]);
-  useEffect(() => {
-    flipYRef.current = flipY;
-  }, [flipY]);
-  useEffect(() => {
-    qualityRef.current = quality;
-  }, [quality]);
+  useEffect(() => { targetRef.current = target; }, [target]);
+  useEffect(() => { resizeModeRef.current = resizeMode; }, [resizeMode]);
+  useEffect(() => { scalePctRef.current = scalePct; }, [scalePct]);
+  useEffect(() => { widthRef.current = width; }, [width]);
+  useEffect(() => { heightRef.current = height; }, [height]);
+  useEffect(() => { keepAspectRef.current = keepAspect; }, [keepAspect]);
+  useEffect(() => { rotateRef.current = rotate; }, [rotate]);
+  useEffect(() => { flipXRef.current = flipX; }, [flipX]);
+  useEffect(() => { flipYRef.current = flipY; }, [flipY]);
+  useEffect(() => { qualityRef.current = quality; }, [quality]);
 
   const ext = file ? getExt(file.name) : "";
-  const normalizedExt = normalizeExt(ext);
 
   const targets = useMemo(() => {
     if (!file) return IMAGE_EDIT_OUTPUTS;
@@ -119,19 +149,29 @@ export default function EditPanel() {
 
   const showQuality = ["jpg", "webp", "avif"].includes(target);
 
-  const outName = file
-    ? `${file.name.replace(/\.[^.]+$/, "")}_edited.${target}`
-    : `edited.${target}`;
+  const outName = getOutFileName(file, target);
+
+  const outDim = useMemo(
+    () =>
+      calcOutputDimensions(
+        sourceWidth,
+        sourceHeight,
+        rotate,
+        resizeMode,
+        scalePct,
+        width,
+        height,
+        keepAspect,
+      ),
+    [sourceWidth, sourceHeight, rotate, resizeMode, scalePct, width, height, keepAspect],
+  );
 
   const baseRatio = useMemo(() => {
     if (!sourceWidth || !sourceHeight) return null;
-
     const rotated = rotate === 90 || rotate === 270;
     const w = rotated ? sourceHeight : sourceWidth;
     const h = rotated ? sourceWidth : sourceHeight;
-
     if (!w || !h) return null;
-
     return h / w;
   }, [sourceWidth, sourceHeight, rotate]);
 
@@ -175,7 +215,6 @@ export default function EditPanel() {
     setWidth("");
     setHeight("");
     setKeepAspect(true);
-
     setRotate(0);
     setFlipX(false);
     setFlipY(false);
@@ -188,51 +227,40 @@ export default function EditPanel() {
 
     const version = ++conversionVersionRef.current;
 
-    const tgt = targetRef.current;
-    const rMode = resizeModeRef.current;
-    const sPct = scalePctRef.current;
-    const w = widthRef.current;
-    const h = heightRef.current;
-    const kAspect = keepAspectRef.current;
-    const rot = rotateRef.current;
-    const fX = flipXRef.current;
-    const fY = flipYRef.current;
-    const qual = qualityRef.current;
-
     setPreviewLoading(true);
 
     convertFile(
       f,
-      tgt,
+      targetRef.current,
       {
-        scalePct: rMode === "percent" ? sPct : undefined,
-        width: rMode === "pixels" && w ? Number(w) : undefined,
-        height: rMode === "pixels" && h ? Number(h) : undefined,
-        keepAspect: kAspect,
-        rotate: rot,
-        flipX: fX,
-        flipY: fY,
-        quality: qual,
+        scalePct: resizeModeRef.current === "percent" ? scalePctRef.current : undefined,
+        width:
+          resizeModeRef.current === "pixels" && widthRef.current
+            ? Number(widthRef.current)
+            : undefined,
+        height:
+          resizeModeRef.current === "pixels" && heightRef.current
+            ? Number(heightRef.current)
+            : undefined,
+        keepAspect: keepAspectRef.current,
+        rotate: rotateRef.current,
+        flipX: flipXRef.current,
+        flipY: flipYRef.current,
+        quality: qualityRef.current,
       },
       () => {},
     )
       .then((blob) => {
         if (version !== conversionVersionRef.current) return;
-
         if (blob.size === 0) {
-          if (version === conversionVersionRef.current) {
-            setError("変換結果が空です。別の形式を試してください。");
-          }
+          setError("変換結果が空です。別の形式を試してください。");
           return;
         }
-
         const url = URL.createObjectURL(blob);
-
         if (version !== conversionVersionRef.current) {
           URL.revokeObjectURL(url);
           return;
         }
-
         setEditedUrlValue(url);
         setEditedSize(blob.size);
         setDownloadUrlValue(url);
@@ -240,12 +268,9 @@ export default function EditPanel() {
       })
       .catch((err) => {
         if (version !== conversionVersionRef.current) return;
-
         console.error("Preview conversion failed:", err);
         setError(
-          err instanceof Error
-            ? err.message
-            : "プレビュー生成に失敗しました。",
+          err instanceof Error ? err.message : "プレビュー生成に失敗しました。",
         );
       })
       .finally(() => {
@@ -256,10 +281,7 @@ export default function EditPanel() {
   }
 
   function scheduleConversion() {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     debounceTimerRef.current = window.setTimeout(() => {
       debounceTimerRef.current = null;
       runConversion();
@@ -268,9 +290,7 @@ export default function EditPanel() {
 
   useEffect(() => {
     return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
       revokeRef(sourceUrlRef);
       revokeRef(editedUrlRef);
       revokeRef(downloadUrlRef);
@@ -279,7 +299,6 @@ export default function EditPanel() {
 
   function handleFile(f: File) {
     const sourceExt = getExt(f.name);
-
     clearPreviews();
     resetImageSettings();
 
@@ -306,29 +325,21 @@ export default function EditPanel() {
 
   async function createConvertedSourcePreview() {
     if (!file) return;
-
     if (sourcePreviewMode === "converted") {
       setSourcePreviewLoading(false);
       setSourceUrl("");
       setError("この画像形式はプレビュー表示できませんでした。編集は試せます。");
       return;
     }
-
     try {
       setSourcePreviewLoading(true);
       setSourcePreviewMode("converted");
-
       const previewBlob = await convertFile(
         file,
         "png",
-        {
-          scalePct: 100,
-          rotate: 0,
-          quality: 90,
-        },
+        { scalePct: 100, rotate: 0, quality: 90 },
         () => {},
       );
-
       setSourceUrl(URL.createObjectURL(previewBlob));
       setSourcePreviewLoading(false);
     } catch {
@@ -340,10 +351,8 @@ export default function EditPanel() {
 
   function handleOriginalImageLoad(e: React.SyntheticEvent<HTMLImageElement>) {
     const img = e.currentTarget;
-
     setSourceWidth(img.naturalWidth);
     setSourceHeight(img.naturalHeight);
-
     setWidth((prev) => prev || String(img.naturalWidth));
     setHeight((prev) => prev || String(img.naturalHeight));
   }
@@ -351,46 +360,36 @@ export default function EditPanel() {
   function handleWidthChange(value: string) {
     const clean = value.replace(/[^\d]/g, "");
     setWidth(clean);
-
     if (keepAspect && baseRatio && clean) {
-      const nextHeight = Math.round(Number(clean) * baseRatio);
-      setHeight(String(nextHeight));
+      setHeight(String(Math.round(Number(clean) * baseRatio)));
     }
-
     scheduleConversion();
   }
 
   function handleHeightChange(value: string) {
     const clean = value.replace(/[^\d]/g, "");
     setHeight(clean);
-
     if (keepAspect && baseRatio && clean) {
-      const nextWidth = Math.round(Number(clean) / baseRatio);
-      setWidth(String(nextWidth));
+      setWidth(String(Math.round(Number(clean) / baseRatio)));
     }
-
     scheduleConversion();
   }
 
   function handleRotate(nextRotate: number) {
     setRotate(nextRotate);
-
     if (keepAspect && sourceWidth && sourceHeight && width) {
       const rotated = nextRotate === 90 || nextRotate === 270;
       const w = rotated ? sourceHeight : sourceWidth;
       const h = rotated ? sourceWidth : sourceHeight;
       const ratio = h / w;
-
       setHeight(String(Math.round(Number(width) * ratio)));
     }
-
     scheduleConversion();
   }
 
   const handleDownload = useCallback(() => {
     const url = downloadUrlRef.current;
     if (!url) return;
-
     const a = document.createElement("a");
     a.href = url;
     a.download = outName;
@@ -399,21 +398,49 @@ export default function EditPanel() {
     document.body.removeChild(a);
   }, [outName]);
 
+  /* ---------- UI helpers ---------- */
+
+  function BlockCard({
+    title,
+    children,
+  }: {
+    title: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-4">
+        <h3 className="text-sm font-bold text-gray-700">{title}</h3>
+        <div className="mt-3">{children}</div>
+      </div>
+    );
+  }
+
+  function SettingBlock({
+    title,
+    children,
+  }: {
+    title: string;
+    children: React.ReactNode;
+  }) {
+    return (
+      <div className="rounded-xl bg-white p-4">
+        <h3 className="text-sm font-bold text-gray-700">{title}</h3>
+        <div className="mt-3">{children}</div>
+      </div>
+    );
+  }
+
   return (
     <section className="flex w-full flex-col items-center gap-4">
       <DropZone file={file} onFile={handleFile} accept="image/*" />
 
       <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-[1fr_1.1fr]">
-        {/* プレビュー */}
+        {/* ---- プレビュー列 ---- */}
         <div className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-bold text-gray-700">元画像</h2>
-
-            <div className="mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+          <BlockCard title="元画像">
+            <div className="flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {sourcePreviewLoading ? (
-                <span className="text-sm text-gray-400">
-                  プレビュー生成中…
-                </span>
+                <span className="text-sm text-gray-400">プレビュー生成中…</span>
               ) : sourcePreviewUrl ? (
                 <img
                   src={sourcePreviewUrl}
@@ -423,12 +450,9 @@ export default function EditPanel() {
                   className="max-h-full max-w-full object-contain"
                 />
               ) : (
-                <span className="text-sm text-gray-400">
-                  画像を選択してください
-                </span>
+                <span className="text-sm text-gray-400">画像を選択してください</span>
               )}
             </div>
-
             {file && (
               <div className="mt-3 text-xs text-gray-500">
                 <div className="break-all">{file.name}</div>
@@ -439,201 +463,214 @@ export default function EditPanel() {
                     {sourcePreviewMode === "converted" && "（PNGプレビュー）"}
                   </div>
                 )}
-                {!sourceWidth && sourcePreviewMode === "converted" && (
-                  <div>PNGプレビューを生成しました</div>
-                )}
               </div>
             )}
-          </div>
+          </BlockCard>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <h2 className="text-sm font-bold text-gray-700">編集後</h2>
-
-            <div className="relative mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+          <BlockCard title="編集後">
+            <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {editedUrl ? (
                 <img
                   src={editedUrl}
                   alt="編集後プレビュー"
-                  onError={() => {
-                    setError(
-                      "編集後の画像を表示できませんでした。別の形式を試してください。",
-                    );
-                  }}
+                  onError={() =>
+                    setError("編集後の画像を表示できませんでした。別の形式を試してください。")
+                  }
                   className={`max-h-full max-w-full object-contain transition-opacity ${
                     previewLoading ? "opacity-50" : "opacity-100"
                   }`}
                 />
               ) : (
-                <span className="text-sm text-gray-400">
-                  編集後のプレビュー
-                </span>
+                <span className="text-sm text-gray-400">編集後のプレビュー</span>
               )}
-
               {previewLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/50">
                   <span className="text-sm text-gray-500">更新中…</span>
                 </div>
               )}
             </div>
-
-            {editedSize !== null && (
-              <div className="mt-3 text-xs text-gray-500">
-                出力サイズ: {formatBytes(editedSize)}
+            <div className="mt-3 flex flex-col gap-1 text-xs text-gray-500">
+              <div className="flex items-center justify-between">
+                <span>ファイル名</span>
+                <span className="break-all font-mono text-gray-700">{outName}</span>
               </div>
-            )}
-          </div>
+              <div className="flex items-center justify-between">
+                <span>形式</span>
+                <span className="font-medium text-gray-700">{target.toUpperCase()}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>解像度</span>
+                <span className="font-medium text-gray-700">
+                  {outDim.w} × {outDim.h}px
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>ファイルサイズ</span>
+                <span className="font-medium text-gray-700">
+                  {editedSize !== null
+                    ? formatBytes(editedSize)
+                    : previewLoading
+                      ? "計算中…"
+                      : "—"}
+                </span>
+              </div>
+            </div>
+          </BlockCard>
         </div>
 
-        {/* 編集設定 */}
-        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-          <h2 className="text-sm font-bold text-gray-700">編集設定</h2>
+        {/* ---- 設定列 ---- */}
+        <div className="flex flex-col gap-4">
+          {/* 出力形式 */}
+          <SettingBlock title="出力形式">
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base"
+            >
+              {targets.map((t) => (
+                <option key={t} value={t}>
+                  {t.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </SettingBlock>
 
-          <div className="mt-4 flex flex-col gap-4">
-            <label className="grid grid-cols-[5rem_1fr] items-center gap-3 text-sm text-gray-600">
-              <span>出力形式</span>
-              <select
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base"
+          {/* 解像度変換 */}
+          <SettingBlock title="解像度">
+            <div className="mb-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setResizeMode("percent")}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                  resizeMode === "percent"
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
               >
-                {targets.map((t) => (
-                  <option key={t} value={t}>
-                    {t.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </label>
+                %
+              </button>
+              <button
+                type="button"
+                onClick={() => setResizeMode("pixels")}
+                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                  resizeMode === "pixels"
+                    ? "bg-green-600 text-white"
+                    : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                px指定
+              </button>
+            </div>
 
-            <div className="rounded-xl bg-white p-3">
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setResizeMode("percent")}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                    resizeMode === "percent"
-                      ? "bg-green-600 text-white"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  %
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setResizeMode("pixels")}
-                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                    resizeMode === "pixels"
-                      ? "bg-green-600 text-white"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  px指定
-                </button>
-              </div>
-
-              {resizeMode === "percent" ? (
-                <label className="mt-3 grid grid-cols-[5rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
-                  <span>サイズ</span>
+            {resizeMode === "percent" ? (
+              <label className="grid grid-cols-[4rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
+                <span>サイズ</span>
+                <input
+                  type="range"
+                  min={10}
+                  max={200}
+                  value={scalePct}
+                  onChange={(e) => setScalePct(Number(e.target.value))}
+                  className="w-full"
+                />
+                <span className="text-right tabular-nums">{scalePct}%</span>
+              </label>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <label className="grid grid-cols-[4rem_1fr] items-center gap-2 text-sm text-gray-600">
+                  <span>幅</span>
                   <input
-                    type="range"
-                    min={10}
-                    max={200}
-                    value={scalePct}
-                    onChange={(e) => setScalePct(Number(e.target.value))}
-                    className="w-full"
+                    value={width}
+                    onChange={(e) => handleWidthChange(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="例: 1200"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
                   />
-                  <span className="text-right tabular-nums">{scalePct}%</span>
                 </label>
-              ) : (
-                <div className="mt-3 flex flex-col gap-3">
-                  <label className="grid grid-cols-[5rem_1fr] items-center gap-2 text-sm text-gray-600">
-                    <span>幅</span>
-                    <input
-                      value={width}
-                      onChange={(e) => handleWidthChange(e.target.value)}
-                      inputMode="numeric"
-                      placeholder="例: 1200"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                    />
-                  </label>
-
-                  <label className="grid grid-cols-[5rem_1fr] items-center gap-2 text-sm text-gray-600">
-                    <span>高さ</span>
-                    <input
-                      value={height}
-                      onChange={(e) => handleHeightChange(e.target.value)}
-                      inputMode="numeric"
-                      placeholder="例: 800"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                    />
-                  </label>
-
-                  <label className="flex items-center gap-2 text-sm text-gray-600">
-                    <input
-                      type="checkbox"
-                      checked={keepAspect}
-                      onChange={(e) => setKeepAspect(e.target.checked)}
-                    />
-                    縦横比を固定
-                  </label>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl bg-white p-3">
-              <div className="text-sm font-medium text-gray-600">回転</div>
-
-              <div className="mt-2 grid grid-cols-4 gap-2">
-                {[0, 90, 180, 270].map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => handleRotate(r)}
-                    className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                      rotate === r
-                        ? "bg-green-600 text-white"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {r}°
-                  </button>
-                ))}
+                <label className="grid grid-cols-[4rem_1fr] items-center gap-2 text-sm text-gray-600">
+                  <span>高さ</span>
+                  <input
+                    value={height}
+                    onChange={(e) => handleHeightChange(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="例: 800"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={keepAspect}
+                    onChange={(e) => setKeepAspect(e.target.checked)}
+                  />
+                  縦横比を固定
+                </label>
               </div>
-            </div>
+            )}
 
-            <div className="rounded-xl bg-white p-3">
-              <div className="text-sm font-medium text-gray-600">反転</div>
+            {/* 解像度の変換前後表示 */}
+            {sourceWidth && sourceHeight && (
+              <div className="mt-3 flex items-center justify-center gap-2 text-xs text-gray-500">
+                <span>
+                  {sourceWidth} × {sourceHeight}px
+                </span>
+                <span className="text-green-600">→</span>
+                <span className="font-medium text-gray-700">
+                  {outDim.w} × {outDim.h}px
+                </span>
+              </div>
+            )}
+          </SettingBlock>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
+          {/* 回転 */}
+          <SettingBlock title="回転">
+            <div className="grid grid-cols-4 gap-2">
+              {[0, 90, 180, 270].map((r) => (
                 <button
+                  key={r}
                   type="button"
-                  onClick={() => setFlipX((v) => !v)}
+                  onClick={() => handleRotate(r)}
                   className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                    flipX
+                    rotate === r
                       ? "bg-green-600 text-white"
                       : "bg-gray-100 text-gray-600"
                   }`}
                 >
-                  左右反転
+                  {r}°
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => setFlipY((v) => !v)}
-                  className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                    flipY
-                      ? "bg-green-600 text-white"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  上下反転
-                </button>
-              </div>
+              ))}
             </div>
+          </SettingBlock>
 
-            {showQuality && (
-              <label className="grid grid-cols-[5rem_1fr_3rem] items-center gap-2 rounded-xl bg-white p-3 text-sm text-gray-600">
-                <span>品質</span>
+          {/* 反転 */}
+          <SettingBlock title="反転">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFlipX((v) => !v)}
+                className={`rounded-lg px-2 py-2 text-sm font-medium ${
+                  flipX ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                左右反転
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlipY((v) => !v)}
+                className={`rounded-lg px-2 py-2 text-sm font-medium ${
+                  flipY ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                }`}
+              >
+                上下反転
+              </button>
+            </div>
+          </SettingBlock>
+
+          {/* 品質 */}
+          {showQuality && (
+            <SettingBlock title="品質">
+              <label className="grid grid-cols-[4rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
+                <span>JPEG</span>
                 <input
                   type="range"
                   min={1}
@@ -644,31 +681,32 @@ export default function EditPanel() {
                 />
                 <span className="text-right tabular-nums">{quality}%</span>
               </label>
-            )}
+            </SettingBlock>
+          )}
 
-            <button
-              type="button"
-              onClick={handleDownload}
-              disabled={!downloadUrlRef.current || previewLoading}
-              className="rounded-xl bg-green-600 px-7 py-3 font-medium text-white shadow hover:bg-green-700 disabled:opacity-40"
-            >
-              ダウンロード
-            </button>
+          {/* ダウンロード */}
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={!downloadUrlRef.current || previewLoading}
+            className="rounded-xl bg-green-600 px-7 py-3 font-medium text-white shadow hover:bg-green-700 disabled:opacity-40"
+          >
+            ダウンロード
+          </button>
 
-            {previewLoading && (
-              <div className="h-4 text-center text-xs text-gray-500">
-                プレビュー更新中…
-              </div>
-            )}
+          {previewLoading && !editedUrl && (
+            <div className="h-4 text-center text-xs text-gray-500">
+              プレビュー更新中…
+            </div>
+          )}
 
-            {error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-                {error}
-              </p>
-            )}
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+              {error}
+            </p>
+          )}
 
-            <DownloadArea url={downloadUrlRef.current} name={outName} />
-          </div>
+          <DownloadArea url={downloadUrlRef.current} name={outName} />
         </div>
       </div>
 

@@ -81,46 +81,110 @@ function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
     out = out.rot(vips.Angle.d270);
   }
 
-  let applied = false;
+  // --- 左右反転 ---
+  if (opts.flipX) {
+    let flipped = false;
 
-  try {
-    if (opts.flipX) {
-      out = out.flipHoriz();
-      applied = true;
-    }
-  } catch {
-    // noop
-  }
+    console.log("[vips] flipX requested. img size:", out.width, "x", out.height);
+    console.log("[vips] typeof flipHoriz:", typeof out.flipHoriz);
+    console.log("[vips] typeof flipVert:", typeof out.flipVert);
+    console.log("[vips] typeof flip:", typeof out.flip);
+    console.log("[vips] Direction:", JSON.stringify(vips.Direction));
 
-  if (!applied) {
+    // 方法1: flipHoriz()
     try {
-      if (opts.flipX) {
-        out = out.flip(vips.Direction.HORIZONTAL);
+      if (typeof out.flipHoriz === "function") {
+        const result = out.flipHoriz();
+        console.log("[vips] flipHoriz() returned:", !!result, "size:", result?.width, "x", result?.height);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
       }
-    } catch {
-      // noop
+    } catch (e) {
+      console.log("[vips] flipHoriz() threw:", e);
     }
+
+    // 方法2: flip(0) — libvips の VIPS_DIRECTION_HORIZONTAL = 0
+    if (!flipped) {
+      try {
+        const result = out.flip(0);
+        console.log("[vips] flip(0) returned:", !!result);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
+      } catch (e) {
+        console.log("[vips] flip(0) threw:", e);
+      }
+    }
+
+    // 方法3: rot(180) + flipVert() の組み合わせ = 左右反転と等価
+    if (!flipped) {
+      try {
+        const rotated = out.rot(vips.Angle.d180);
+        const result = rotated.flipVert();
+        console.log("[vips] rot180+flipVert returned:", !!result);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
+      } catch (e) {
+        console.log("[vips] rot180+flipVert threw:", e);
+      }
+    }
+
+    console.log("[vips] flipX final flipped:", flipped, "size:", out.width, "x", out.height);
   }
 
-  applied = false;
+  // --- 上下反転 ---
+  if (opts.flipY) {
+    let flipped = false;
 
-  try {
-    if (opts.flipY) {
-      out = out.flipVert();
-      applied = true;
-    }
-  } catch {
-    // noop
-  }
-
-  if (!applied) {
+    // 方法1: flipVert()
     try {
-      if (opts.flipY) {
-        out = out.flip(vips.Direction.VERTICAL);
+      if (typeof out.flipVert === "function") {
+        const result = out.flipVert();
+        console.log("[vips] flipVert() returned:", !!result);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
       }
-    } catch {
-      // noop
+    } catch (e) {
+      console.log("[vips] flipVert() threw:", e);
     }
+
+    // 方法2: flip(1) — libvips の VIPS_DIRECTION_VERTICAL = 1
+    if (!flipped) {
+      try {
+        const result = out.flip(1);
+        console.log("[vips] flip(1) returned:", !!result);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
+      } catch (e) {
+        console.log("[vips] flip(1) threw:", e);
+      }
+    }
+
+    // 方法3: rot(180) + flipHoriz() の組み合わせ = 上下反転と等価
+    if (!flipped) {
+      try {
+        const rotated = out.rot(vips.Angle.d180);
+        const result = rotated.flipHoriz();
+        console.log("[vips] rot180+flipHoriz returned:", !!result);
+        if (result) {
+          out = result;
+          flipped = true;
+        }
+      } catch (e) {
+        console.log("[vips] rot180+flipHoriz threw:", e);
+      }
+    }
+
+    console.log("[vips] flipY final flipped:", flipped, "size:", out.width, "x", out.height);
   }
 
   const requestedWidth =
