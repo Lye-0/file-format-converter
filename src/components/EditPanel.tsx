@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import DropZone from "@/components/DropZone";
-import DownloadArea from "@/components/DownloadArea";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Slider from "@/components/Slider";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
@@ -82,6 +80,9 @@ function getOutFileName(file: File | null, target: string) {
   return `${base}_edited.${target}`;
 }
 
+const ACTIVE_BTN = "bg-green-50 text-green-700 border border-green-200";
+const INACTIVE_BTN = "bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100";
+
 export default function EditPanel() {
   const [file, setFile] = useState<File | null>(null);
 
@@ -107,7 +108,7 @@ export default function EditPanel() {
   const [rotate, setRotate] = useState(0);
   const [flipX, setFlipX] = useState(false);
   const [flipY, setFlipY] = useState(false);
-  const [quality, setQuality] = useState(82);
+  const [quality, setQuality] = useState(100);
 
   const [error, setError] = useState("");
 
@@ -129,6 +130,9 @@ export default function EditPanel() {
 
   const debounceTimerRef = useRef<number | null>(null);
   const conversionVersionRef = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [sourceDrag, setSourceDrag] = useState(false);
+  const [sourceHover, setSourceHover] = useState(false);
 
   useEffect(() => { targetRef.current = target; }, [target]);
   useEffect(() => { resizeModeRef.current = resizeMode; }, [resizeMode]);
@@ -141,7 +145,6 @@ export default function EditPanel() {
   useEffect(() => { flipYRef.current = flipY; }, [flipY]);
   useEffect(() => { qualityRef.current = quality; }, [quality]);
 
-  // 設定が変わったら自動でプレビュー更新
   useEffect(() => {
     if (!fileRef.current) return;
     scheduleConversion();
@@ -149,6 +152,7 @@ export default function EditPanel() {
   }, [target, resizeMode, scalePct, width, height, keepAspect, rotate, flipX, flipY, quality]);
 
   const ext = file ? getExt(file.name) : "";
+  const normalizedExt = normalizeExt(ext);
 
   const targets = useMemo(() => {
     if (!file) return IMAGE_EDIT_OUTPUTS;
@@ -226,7 +230,7 @@ export default function EditPanel() {
     setRotate(0);
     setFlipX(false);
     setFlipY(false);
-    setQuality(82);
+    setQuality(100);
   }
 
   function runConversion() {
@@ -392,7 +396,7 @@ export default function EditPanel() {
     }
   }
 
-  const handleDownload = useCallback(() => {
+  function handleDownload() {
     const url = downloadUrlRef.current;
     if (!url) return;
     const a = document.createElement("a");
@@ -401,50 +405,126 @@ export default function EditPanel() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-  }, [outName]);
+  }
+
+  function FileInfoRow({ label, value }: { label: string; value: string }) {
+    return (
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-400">{label}</span>
+        <span className="text-right text-gray-700">{value}</span>
+      </div>
+    );
+  }
+
+  function handleSourceClick() {
+    fileInputRef.current?.click();
+  }
+
+  function handleSourceDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setSourceDrag(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) handleFile(f);
+  }
 
   return (
-    <section className="flex w-full flex-col items-center gap-4">
-      <DropZone file={file} onFile={handleFile} accept="image/*" />
+    <section className="mx-auto w-full max-w-4xl px-4 py-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleFile(f);
+        }}
+      />
 
-      <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-[1fr_1.1fr]">
-        {/* ---- プレビュー列 ---- */}
+      {/* Two-column layout */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        {/* Left column: Previews */}
         <div className="flex flex-col gap-4">
-          {/* 元画像 */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">元画像</h3>
-            <div className="mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+          {/* Original image —兼ねる入力欄 */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+            <h3 className="text-sm font-semibold text-gray-700">元画像</h3>
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={handleSourceClick}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") handleSourceClick();
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setSourceDrag(true);
+              }}
+              onDragLeave={() => setSourceDrag(false)}
+              onDrop={handleSourceDrop}
+              onMouseEnter={() => file && setSourceHover(true)}
+              onMouseLeave={() => setSourceHover(false)}
+              className={`relative mt-3 flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl transition ${
+                sourceDrag
+                  ? "border-2 border-green-400 bg-green-50"
+                  : "border-2 border-transparent bg-gray-50 hover:border-gray-200"
+              }`}
+              style={{ aspectRatio: "16/9" }}
+            >
               {sourcePreviewLoading ? (
                 <span className="text-sm text-gray-400">プレビュー生成中…</span>
               ) : sourcePreviewUrl ? (
-                <img
-                  src={sourcePreviewUrl}
-                  alt="元画像プレビュー"
-                  onLoad={handleOriginalImageLoad}
-                  onError={createConvertedSourcePreview}
-                  className="max-h-full max-w-full object-contain"
-                />
+                <>
+                  <img
+                    src={sourcePreviewUrl}
+                    alt="元画像プレビュー"
+                    onLoad={handleOriginalImageLoad}
+                    onError={createConvertedSourcePreview}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                  {/* Hover overlay */}
+                  {sourceHover && !sourceDrag && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity">
+                      <span className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm">
+                        画像を変更
+                      </span>
+                    </div>
+                  )}
+                </>
               ) : (
-                <span className="text-sm text-gray-400">画像を選択してください</span>
+                <div className="flex flex-col items-center gap-2 text-gray-400">
+                  <span className="text-3xl">📁</span>
+                  <span className="text-sm">画像を選択</span>
+                  <span className="text-xs">またはここにドロップ</span>
+                </div>
+              )}
+              {/* Drag feedback */}
+              {sourceDrag && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <span className="rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
+                    ここにドロップ
+                  </span>
+                </div>
               )}
             </div>
             {file && (
-              <div className="mt-3 text-xs text-gray-500">
-                <div className="break-all">{file.name}</div>
-                <div>{formatBytes(file.size)}</div>
-                {sourceWidth && sourceHeight && (
-                  <div>
-                    {sourceWidth} × {sourceHeight}px
-                    {sourcePreviewMode === "converted" && "（PNGプレビュー）"}
-                  </div>
-                )}
+              <div className="mt-3 space-y-1.5">
+                <FileInfoRow label="ファイル名" value={file.name} />
+                <FileInfoRow label="形式" value={normalizedExt.toUpperCase()} />
+                <FileInfoRow
+                  label="解像度"
+                  value={
+                    sourceWidth && sourceHeight
+                      ? `${sourceWidth} × ${sourceHeight}px`
+                      : "—"
+                  }
+                />
+                <FileInfoRow label="ファイルサイズ" value={formatBytes(file.size)} />
               </div>
             )}
           </div>
 
-          {/* 編集後 */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">編集後</h3>
+          {/* Edited image */}
+          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+            <h3 className="text-sm font-semibold text-gray-700">編集後</h3>
             <div className="relative mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
               {editedUrl ? (
                 <img
@@ -461,160 +541,174 @@ export default function EditPanel() {
                 <span className="text-sm text-gray-400">編集後のプレビュー</span>
               )}
               {previewLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/50">
+                <div className="absolute inset-0 flex items-center justify-center bg-white/60">
                   <span className="text-sm text-gray-500">更新中…</span>
                 </div>
               )}
             </div>
-            <div className="mt-3 flex flex-col gap-1 text-xs text-gray-500">
-              <div className="flex items-center justify-between">
-                <span>ファイル名</span>
-                <span className="break-all font-mono text-gray-700">{outName}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>形式</span>
-                <span className="font-medium text-gray-700">{target.toUpperCase()}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>解像度</span>
-                <span className="font-medium text-gray-700">
-                  {outDim.w} × {outDim.h}px
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>ファイルサイズ</span>
-                <span className="font-medium text-gray-700">
-                  {editedSize !== null
+            <div className="mt-3 space-y-1.5">
+              <FileInfoRow label="ファイル名" value={outName} />
+              <FileInfoRow label="形式" value={target.toUpperCase()} />
+              <FileInfoRow
+                label="解像度"
+                value={`${outDim.w} × ${outDim.h}px`}
+              />
+              <FileInfoRow
+                label="ファイルサイズ"
+                value={
+                  editedSize !== null
                     ? formatBytes(editedSize)
                     : previewLoading
                       ? "計算中…"
-                      : "—"}
-                </span>
-              </div>
+                      : "—"
+                }
+              />
             </div>
+            <button
+              type="button"
+              onClick={handleDownload}
+              disabled={!downloadUrlRef.current || previewLoading}
+              className="mt-4 w-full rounded-xl bg-green-600 py-3 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40"
+            >
+              ダウンロード
+            </button>
           </div>
         </div>
 
-        {/* ---- 設定列 ---- */}
-        <div className="flex flex-col gap-4">
-          {/* 出力形式 */}
-          <div className="rounded-xl bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">出力形式</h3>
-            <div className="mt-3">
-            <select
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-base"
-            >
-              {targets.map((t) => (
-                <option key={t} value={t}>
-                  {t.toUpperCase()}
-                </option>
-              ))}
-            </select>
+        {/* Right column: Settings */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+          <h3 className="text-sm font-semibold text-gray-700">編集設定</h3>
+
+          {/* Output format */}
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+              出力形式
+            </h4>
+            <div className="mt-2">
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
+              >
+                {targets.map((t) => (
+                  <option key={t} value={t}>
+                    {t.toUpperCase()}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* 解像度変換 */}
-          <div className="rounded-xl bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">解像度</h3>
-            <div className="mt-3">
-            <div className="mb-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setResizeMode("percent")}
-                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                  resizeMode === "percent"
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                %
-              </button>
-              <button
-                type="button"
-                onClick={() => setResizeMode("pixels")}
-                className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
-                  resizeMode === "pixels"
-                    ? "bg-green-600 text-white"
-                    : "bg-gray-100 text-gray-600"
-                }`}
-              >
-                px指定
-              </button>
-            </div>
-
-            {resizeMode === "percent" ? (
-              <Slider
-                id="scale-slider"
-                label="サイズ"
-                value={scalePct}
-                min={10}
-                max={200}
-                onChange={setScalePct}
-                suffix="%"
-              />
-            ) : (
-              <div className="flex flex-col gap-3">
-                <label className="grid grid-cols-[4rem_1fr] items-center gap-2 text-sm text-gray-600">
-                  <span>幅</span>
-                  <input
-                    value={width}
-                    onChange={(e) => handleWidthChange(e.target.value)}
-                    inputMode="numeric"
-                    placeholder="例: 1200"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  />
-                </label>
-                <label className="grid grid-cols-[4rem_1fr] items-center gap-2 text-sm text-gray-600">
-                  <span>高さ</span>
-                  <input
-                    value={height}
-                    onChange={(e) => handleHeightChange(e.target.value)}
-                    inputMode="numeric"
-                    placeholder="例: 800"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-600">
-                  <input
-                    type="checkbox"
-                    checked={keepAspect}
-                    onChange={(e) => setKeepAspect(e.target.checked)}
-                  />
-                  縦横比を固定
-                </label>
+          {/* Resolution */}
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+              解像度
+            </h4>
+            <div className="mt-2">
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setResizeMode("percent")}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                    resizeMode === "percent" ? ACTIVE_BTN : INACTIVE_BTN
+                  }`}
+                >
+                  %
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResizeMode("pixels")}
+                  className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium ${
+                    resizeMode === "pixels" ? ACTIVE_BTN : INACTIVE_BTN
+                  }`}
+                >
+                  px指定
+                </button>
               </div>
-            )}
-
-            {/* 解像度の変換前後表示 */}
-            {sourceWidth && sourceHeight && (
-              <div className="mt-3 flex items-center justify-center gap-2 text-xs text-gray-500">
-                <span>
-                  {sourceWidth} × {sourceHeight}px
-                </span>
-                <span className="text-green-600">→</span>
-                <span className="font-medium text-gray-700">
-                  {outDim.w} × {outDim.h}px
-                </span>
+              {/* Detail area — indented with left border */}
+              <div className="mt-3 ml-4 border-l-2 border-gray-200 pl-4">
+                {resizeMode === "percent" ? (
+                  <Slider
+                    id="scale-slider"
+                    label="サイズ"
+                    value={scalePct}
+                    min={10}
+                    max={200}
+                    onChange={setScalePct}
+                    suffix="%"
+                  >
+                    {sourceWidth && sourceHeight && (
+                      <div className="mt-2 flex items-center justify-center gap-2 text-xs text-gray-400">
+                        <span>
+                          {sourceWidth} × {sourceHeight}px
+                        </span>
+                        <span className="text-green-600">→</span>
+                        <span className="font-medium text-gray-700">
+                          {outDim.w} × {outDim.h}px
+                        </span>
+                      </div>
+                    )}
+                  </Slider>
+                ) : (
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <span className="text-sm text-gray-600">幅</span>
+                      <input
+                        value={width}
+                        onChange={(e) => handleWidthChange(e.target.value)}
+                        inputMode="numeric"
+                        placeholder="例: 1200"
+                        className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-600">高さ</span>
+                      <input
+                        value={height}
+                        onChange={(e) => handleHeightChange(e.target.value)}
+                        inputMode="numeric"
+                        placeholder="例: 800"
+                        className="mt-1 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={keepAspect}
+                        onChange={(e) => setKeepAspect(e.target.checked)}
+                      />
+                      縦横比を固定
+                    </label>
+                    {sourceWidth && sourceHeight && (
+                      <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
+                        <span>
+                          {sourceWidth} × {sourceHeight}px
+                        </span>
+                        <span className="text-green-600">→</span>
+                        <span className="font-medium text-gray-700">
+                          {outDim.w} × {outDim.h}px
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            )}
             </div>
           </div>
 
-          {/* 回転 */}
-          <div className="rounded-xl bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">回転</h3>
-            <div className="mt-3 grid grid-cols-4 gap-2">
+          {/* Rotation */}
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+              回転
+            </h4>
+            <div className="mt-2 grid grid-cols-4 gap-2">
               {[0, 90, 180, 270].map((r) => (
                 <button
                   key={r}
                   type="button"
                   onClick={() => handleRotate(r)}
                   className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                    rotate === r
-                      ? "bg-green-600 text-white"
-                      : "bg-gray-100 text-gray-600"
+                    rotate === r ? ACTIVE_BTN : INACTIVE_BTN
                   }`}
                 >
                   {r}°
@@ -623,15 +717,17 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* 反転 */}
-          <div className="rounded-xl bg-white p-4">
-            <h3 className="text-sm font-bold text-gray-700">反転</h3>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+          {/* Flip */}
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+              反転
+            </h4>
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setFlipX((v) => !v)}
                 className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                  flipX ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                  flipX ? ACTIVE_BTN : INACTIVE_BTN
                 }`}
               >
                 左右反転
@@ -640,7 +736,7 @@ export default function EditPanel() {
                 type="button"
                 onClick={() => setFlipY((v) => !v)}
                 className={`rounded-lg px-2 py-2 text-sm font-medium ${
-                  flipY ? "bg-green-600 text-white" : "bg-gray-100 text-gray-600"
+                  flipY ? ACTIVE_BTN : INACTIVE_BTN
                 }`}
               >
                 上下反転
@@ -648,51 +744,35 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* 品質 */}
+          {/* Quality */}
           {showQuality && (
-            <div className="rounded-xl bg-white p-4">
-              <h3 className="text-sm font-bold text-gray-700">品質</h3>
-              <div className="mt-3">
+            <div className="mt-4 border-t border-gray-100 pt-4">
               <Slider
                 id="quality-slider"
-                label="JPEG"
+                label="品質"
                 value={quality}
                 min={1}
                 max={100}
                 onChange={setQuality}
                 suffix="%"
               />
-              </div>
             </div>
           )}
-
-          {/* ダウンロード */}
-          <button
-            type="button"
-            onClick={handleDownload}
-            disabled={!downloadUrlRef.current || previewLoading}
-            className="rounded-xl bg-green-600 px-7 py-3 font-medium text-white shadow hover:bg-green-700 disabled:opacity-40"
-          >
-            ダウンロード
-          </button>
-
-          {previewLoading && !editedUrl && (
-            <div className="h-4 text-center text-xs text-gray-500">
-              プレビュー更新中…
-            </div>
-          )}
-
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
-              {error}
-            </p>
-          )}
-
-          <DownloadArea url={downloadUrlRef.current} name={outName} />
         </div>
       </div>
 
-      <p className="max-w-2xl text-center text-xs leading-5 text-gray-400">
+      {previewLoading && !editedUrl && (
+        <div className="mt-2 text-center text-xs text-gray-400">
+          プレビュー更新中…
+        </div>
+      )}
+      {error && (
+        <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">
+          {error}
+        </p>
+      )}
+
+      <p className="mt-4 text-center text-xs leading-5 text-gray-400">
         ※ 設定を変更すると自動的にプレビューが更新されます。
         PDFページ編集は次のステップで追加します。
       </p>

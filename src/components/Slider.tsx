@@ -11,6 +11,7 @@ type SliderProps = {
   label?: string;
   suffix?: string;
   id?: string;
+  children?: React.ReactNode;
 };
 
 export default function Slider({
@@ -22,13 +23,14 @@ export default function Slider({
   label,
   suffix = "",
   id,
+  children,
 }: SliderProps) {
   const [local, setLocal] = useState(value);
   const draggingRef = useRef(false);
   const lastReportedRef = useRef(value);
   const rafRef = useRef<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // 外部から value が変わったとき、ドラッグ中でなければ追従
   useEffect(() => {
     if (!draggingRef.current) {
       setLocal(value);
@@ -46,11 +48,17 @@ export default function Slider({
     [onChange],
   );
 
+  const updateSliderFill = useCallback((el: HTMLInputElement | null, val: number) => {
+    if (!el) return;
+    const pct = ((val - min) / (max - min)) * 100;
+    el.style.setProperty("--fill", `${pct}%`);
+  }, [min, max]);
+
   const handleInput = useCallback(
     (e: React.FormEvent<HTMLInputElement>) => {
       const next = Number((e.target as HTMLInputElement).value);
       setLocal(next);
-      // ドラッグ中は rAF で throttling
+      updateSliderFill(e.currentTarget, next);
       if (draggingRef.current) {
         if (rafRef.current) cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(() => {
@@ -60,7 +68,7 @@ export default function Slider({
         reportValue(next);
       }
     },
-    [reportValue],
+    [reportValue, updateSliderFill],
   );
 
   const handlePointerDown = useCallback(() => {
@@ -73,14 +81,28 @@ export default function Slider({
     reportValue(local);
   }, [local, reportValue]);
 
+  useEffect(() => {
+    updateSliderFill(inputRef.current, local);
+  }, [local, updateSliderFill]);
+
+  const displayValue = draggingRef.current ? local : value;
+
   return (
-    <div className="grid grid-cols-[4rem_1fr_3rem] items-center gap-2 text-sm text-gray-600">
-      {label && (
-        <label htmlFor={id} className="select-none">
-          {label}
-        </label>
-      )}
+    <div className="w-full">
+      <div className="flex items-center justify-between">
+        {label && (
+          <label htmlFor={id} className="select-none text-sm text-gray-600">
+            {label}
+          </label>
+        )}
+        <span className="tabular-nums select-none text-sm font-medium text-gray-700">
+          {displayValue}
+          {suffix}
+        </span>
+      </div>
+
       <input
+        ref={inputRef}
         id={id}
         type="range"
         min={min}
@@ -91,12 +113,10 @@ export default function Slider({
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className="w-full"
+        className="slider mt-2 w-full"
       />
-      <span className="text-right tabular-nums select-none">
-        {local}
-        {suffix}
-      </span>
+
+      {children}
     </div>
   );
 }

@@ -30,3 +30,68 @@ select,
 textarea {
   font: inherit;
 }
+
+/* Range slider — shared style for size and quality */
+.slider {
+  --fill: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    #3b82f6 0%,
+    #3b82f6 var(--fill),
+    #e5e7eb var(--fill),
+    #e5e7eb 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #3b82f6;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  border-color: #2563eb;
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #3b82f6;
+  cursor: pointer;
+  transition: border-color 120ms ease;
+}
+
+.slider::-moz-range-thumb:hover {
+  border-color: #2563eb;
+}
+
+.slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    #3b82f6 0%,
+    #3b82f6 var(--fill),
+    #e5e7eb var(--fill),
+    #e5e7eb 100%
+  );
+}
+
+.slider:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
