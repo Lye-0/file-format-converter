@@ -5,18 +5,15 @@ import Slider from "@/components/Slider";
 import FileInputIcon from "@/components/FileInputIcon";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
+import { formatBytes } from "@/lib/utils/formatBytes";
+import { triggerDownload } from "@/lib/utils/download";
+import { useLatest } from "@/lib/hooks/useLatest";
 
 type ResizeMode = "percent" | "pixels";
 type PreviewMode = "native" | "converted";
 
 const IMAGE_EDIT_OUTPUTS = ["png", "jpg", "webp", "avif", "gif", "bmp", "tiff"];
 const DEBOUNCE_MS = 300;
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-}
 
 function getImageEditTargets(ext: string) {
   const normalized = normalizeExt(ext);
@@ -118,33 +115,22 @@ export default function EditPanel() {
   const downloadUrlRef = useRef<string | null>(null);
 
   const fileRef = useRef<File | null>(null);
-  const targetRef = useRef(target);
-  const resizeModeRef = useRef(resizeMode);
-  const scalePctRef = useRef(scalePct);
-  const widthRef = useRef(width);
-  const heightRef = useRef(height);
-  const keepAspectRef = useRef(keepAspect);
-  const rotateRef = useRef(rotate);
-  const flipXRef = useRef(flipX);
-  const flipYRef = useRef(flipY);
-  const qualityRef = useRef(quality);
+  const targetRef = useLatest(target);
+  const resizeModeRef = useLatest(resizeMode);
+  const scalePctRef = useLatest(scalePct);
+  const widthRef = useLatest(width);
+  const heightRef = useLatest(height);
+  const keepAspectRef = useLatest(keepAspect);
+  const rotateRef = useLatest(rotate);
+  const flipXRef = useLatest(flipX);
+  const flipYRef = useLatest(flipY);
+  const qualityRef = useLatest(quality);
 
   const debounceTimerRef = useRef<number | null>(null);
   const conversionVersionRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sourceDrag, setSourceDrag] = useState(false);
   const [sourceHover, setSourceHover] = useState(false);
-
-  useEffect(() => { targetRef.current = target; }, [target]);
-  useEffect(() => { resizeModeRef.current = resizeMode; }, [resizeMode]);
-  useEffect(() => { scalePctRef.current = scalePct; }, [scalePct]);
-  useEffect(() => { widthRef.current = width; }, [width]);
-  useEffect(() => { heightRef.current = height; }, [height]);
-  useEffect(() => { keepAspectRef.current = keepAspect; }, [keepAspect]);
-  useEffect(() => { rotateRef.current = rotate; }, [rotate]);
-  useEffect(() => { flipXRef.current = flipX; }, [flipX]);
-  useEffect(() => { flipYRef.current = flipY; }, [flipY]);
-  useEffect(() => { qualityRef.current = quality; }, [quality]);
 
   useEffect(() => {
     if (!fileRef.current) return;
@@ -400,12 +386,7 @@ export default function EditPanel() {
   function handleDownload() {
     const url = downloadUrlRef.current;
     if (!url) return;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = outName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    triggerDownload(url, outName);
   }
 
   function FileInfoRow({ label, value }: { label: string; value: string }) {

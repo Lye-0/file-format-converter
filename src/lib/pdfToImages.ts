@@ -1,48 +1,6 @@
 "use client";
 
-type PdfJsModule = {
-  GlobalWorkerOptions: {
-    workerSrc: string;
-  };
-  getDocument: (params: {
-    data: Uint8Array;
-  }) => {
-    promise: Promise<any>;
-  };
-};
-
-let pdfjsPromise: Promise<PdfJsModule> | null = null;
-
-async function getPdfjs(): Promise<PdfJsModule> {
-  if (!pdfjsPromise) {
-    pdfjsPromise = (async () => {
-      if (typeof window === "undefined") {
-        throw new Error("PDF.js はブラウザ上でのみ実行できます。");
-      }
-
-      /**
-       * 重要:
-       * import("pdfjs-dist") を使うと Next.js / Turbopack が
-       * pdfjs-dist をサーバー側でも評価し、DOMMatrix が無くて落ちる。
-       *
-       * そのため public/pdfjs/pdf.mjs をブラウザ実行時に直接読み込む。
-       * new Function 経由にすることで Turbopack の静的解析対象から外す。
-       */
-      const dynamicImport = new Function(
-        "path",
-        "return import(path)",
-      ) as (path: string) => Promise<PdfJsModule>;
-
-      const pdfjsLib = await dynamicImport("/pdfjs/pdf.mjs");
-
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.mjs";
-
-      return pdfjsLib;
-    })();
-  }
-
-  return pdfjsPromise;
-}
+import { getPdfjs } from "./utils/pdfjs";
 
 // PDF の 1 ページ目を画像化する。
 // フェーズ1ではシンプルに「先頭ページのみ」対応。
@@ -92,6 +50,7 @@ export async function pdfToFirstPageImage(
 
   await page.render({
     canvasContext: ctx,
+    canvas,
     viewport,
   }).promise;
 
@@ -109,8 +68,6 @@ export async function pdfToFirstPageImage(
       0.92,
     );
   });
-
-  await pdf.destroy?.();
 
   onProgress(1);
 

@@ -4,30 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { PDFDocument, degrees } from "pdf-lib";
 import FileInputIcon from "@/components/FileInputIcon";
-
-/* ── Dynamic pdfjs-dist import (browser only) ── */
-
-type PdfjsLib = typeof import("pdfjs-dist");
-
-let pdfjsPromise: Promise<PdfjsLib> | null = null;
-
-async function getPdfjs(): Promise<PdfjsLib> {
-  if (!pdfjsPromise) {
-    pdfjsPromise = (async () => {
-      if (typeof window === "undefined") {
-        throw new Error("PDF.js はブラウザ上でのみ実行できます。");
-      }
-      const dynamicImport = new Function(
-        "path",
-        "return import(path)",
-      ) as (path: string) => Promise<PdfjsLib>;
-      const lib = await dynamicImport("/pdfjs/pdf.mjs");
-      lib.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.mjs";
-      return lib;
-    })();
-  }
-  return pdfjsPromise;
-}
+import { getPdfjs } from "@/lib/utils/pdfjs";
+import { triggerDownload } from "@/lib/utils/download";
 
 /* ── Types ── */
 
@@ -293,14 +271,10 @@ function PdfGroupBlock({
     try {
       const bytes = await generateGroupPdf(group, pdfCache);
       const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = getOutputFilename(group, groupIndex, totalGroups);
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerDownload(
+        URL.createObjectURL(blob),
+        getOutputFilename(group, groupIndex, totalGroups),
+      );
     } catch {
       setError("PDFの生成に失敗しました");
     } finally {
@@ -686,14 +660,7 @@ export default function PdfEditPanel() {
       if (groups.length === 1) {
         const bytes = await generateGroupPdf(groups[0], pdfCache.current);
         const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = getOutputFilename(groups[0], 0, 1);
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        triggerDownload(URL.createObjectURL(blob), getOutputFilename(groups[0], 0, 1));
         return;
       }
       const zip = new JSZip();
@@ -702,14 +669,7 @@ export default function PdfEditPanel() {
         zip.file(getOutputFilename(groups[i], i, groups.length), bytes);
       }
       const zipBlob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(zipBlob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "pdf_edited.zip";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      triggerDownload(URL.createObjectURL(zipBlob), "pdf_edited.zip");
     } catch {
       setError("一括ダウンロードに失敗しました");
     } finally {
@@ -727,14 +687,10 @@ export default function PdfEditPanel() {
       for (let i = 0; i < groups.length; i++) {
         const bytes = await generateGroupPdf(groups[i], pdfCache.current);
         const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = getOutputFilename(groups[i], i, groups.length);
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        triggerDownload(
+          URL.createObjectURL(blob),
+          getOutputFilename(groups[i], i, groups.length),
+        );
       }
     } catch {
       setError("PDFの生成に失敗しました");
