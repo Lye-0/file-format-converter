@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Slider from "@/components/Slider";
+import FileInputIcon from "@/components/FileInputIcon";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
 
@@ -488,7 +489,7 @@ export default function EditPanel() {
               </>
             ) : (
               <div className="flex flex-col items-center gap-2 text-gray-400">
-                <span className="text-3xl">📁</span>
+                <FileInputIcon className="h-10 w-10 sm:h-12 sm:w-12" />
                 <span className="text-sm">画像を選択</span>
                 <span className="text-xs">またはここにドロップ</span>
               </div>
@@ -578,7 +579,7 @@ export default function EditPanel() {
 
           {/* Output format */}
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+            <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               出力形式
             </h4>
             <div className="mt-2">
@@ -598,7 +599,7 @@ export default function EditPanel() {
 
           {/* Resolution */}
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+            <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               解像度
             </h4>
             <div className="mt-2">
@@ -628,6 +629,7 @@ export default function EditPanel() {
                   <Slider
                     id="scale-slider"
                     label="サイズ"
+                    labelClassName="select-none text-[10px] text-gray-600 sm:text-xs"
                     value={scalePct}
                     min={10}
                     max={200}
@@ -649,7 +651,7 @@ export default function EditPanel() {
                 ) : (
                   <div className="flex flex-col gap-4">
                     <div>
-                      <span className="text-sm text-gray-600">幅</span>
+                      <span className="text-[10px] text-gray-600 sm:text-xs">幅</span>
                       <input
                         value={width}
                         onChange={(e) => handleWidthChange(e.target.value)}
@@ -659,7 +661,7 @@ export default function EditPanel() {
                       />
                     </div>
                     <div>
-                      <span className="text-sm text-gray-600">高さ</span>
+                      <span className="text-[10px] text-gray-600 sm:text-xs">高さ</span>
                       <input
                         value={height}
                         onChange={(e) => handleHeightChange(e.target.value)}
@@ -695,7 +697,7 @@ export default function EditPanel() {
 
           {/* Rotation */}
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+            <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               回転
             </h4>
             <div className="mt-2 grid grid-cols-4 gap-2">
@@ -716,7 +718,7 @@ export default function EditPanel() {
 
           {/* Flip */}
           <div className="mt-4 border-t border-gray-100 pt-4">
-            <h4 className="text-xs font-medium tracking-wide text-gray-400 uppercase">
+            <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               反転
             </h4>
             <div className="mt-2 grid grid-cols-2 gap-2">
@@ -747,6 +749,7 @@ export default function EditPanel() {
               <Slider
                 id="quality-slider"
                 label="品質"
+                labelClassName="select-none text-xs font-medium tracking-wide text-gray-600 uppercase"
                 value={quality}
                 min={1}
                 max={100}
@@ -771,7 +774,6 @@ export default function EditPanel() {
 
       <p className="mt-4 text-left text-xs leading-5 text-gray-400 sm:text-center">
         ※ 設定を変更すると自動的にプレビューが更新されます。
-        PDFページ編集は次のステップで追加します。
       </p>
     </section>
   );

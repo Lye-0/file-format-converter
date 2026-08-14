@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { PDFDocument, degrees } from "pdf-lib";
+import FileInputIcon from "@/components/FileInputIcon";
 
 /* ── Dynamic pdfjs-dist import (browser only) ── */
 
@@ -329,22 +330,22 @@ function PdfGroupBlock({
         <button
           type="button"
           onClick={handleAddPdf}
-          className="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+          className="pdf-btn-join shrink-0 whitespace-nowrap"
         >
           ＋ PDFを結合
         </button>
       </div>
 
       {/* Toolbar */}
-      <div className="mt-3 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-        <span className="mr-1 text-xs text-gray-400">
-          {selectedIndex >= 0 ? `${selectedIndex + 1}ページ目を選択中` : "ページを選択"}
+      <div className="pdf-toolbar mt-2 flex items-center rounded-xl border border-gray-200 bg-gray-50 sm:mt-3 sm:px-4 sm:py-2.5 pdf-toolbar-pc">
+        <span className="pdf-status whitespace-nowrap text-gray-400 sm:text-xs">
+          {selectedIndex >= 0 ? `${selectedIndex + 1}ページ目` : "選択"}
         </span>
         <button
           type="button"
           disabled={selectedIndex < 0}
           onClick={() => rotatePage(-1)}
-          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+          className="pdf-btn-compact whitespace-nowrap"
         >
           ↶ 左回転
         </button>
@@ -352,7 +353,7 @@ function PdfGroupBlock({
           type="button"
           disabled={selectedIndex < 0}
           onClick={() => rotatePage(1)}
-          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+          className="pdf-btn-compact whitespace-nowrap"
         >
           ↷ 右回転
         </button>
@@ -365,16 +366,17 @@ function PdfGroupBlock({
               setSelectedId(null);
             }
           }}
-          className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40"
+          className="pdf-btn-compact whitespace-nowrap"
         >
           分割
         </button>
-        <div className="flex-1" />
+        {/* Spacer */}
+        <div />
         <button
           type="button"
           disabled={selectedIndex < 0}
           onClick={deletePage}
-          className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-xs font-medium text-red-500 hover:bg-red-50 disabled:opacity-40"
+          className="pdf-btn-delete whitespace-nowrap"
         >
           削除
         </button>
@@ -520,6 +522,7 @@ export default function PdfEditPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [downloadingAll, setDownloadingAll] = useState(false);
+  const [downloadingAllPdfs, setDownloadingAllPdfs] = useState(false);
   const [pageDragSource, setPageDragSource] = useState<PageDragSource | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -714,6 +717,32 @@ export default function PdfEditPanel() {
     }
   }
 
+  /* ── Download all as individual PDFs ── */
+
+  async function downloadAllPdfs() {
+    if (groups.length === 0) return;
+    setDownloadingAllPdfs(true);
+    setError("");
+    try {
+      for (let i = 0; i < groups.length; i++) {
+        const bytes = await generateGroupPdf(groups[i], pdfCache.current);
+        const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = getOutputFilename(groups[i], i, groups.length);
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      setError("PDFの生成に失敗しました");
+    } finally {
+      setDownloadingAllPdfs(false);
+    }
+  }
+
   /* ── Render ── */
 
   return (
@@ -740,7 +769,7 @@ export default function PdfEditPanel() {
             loading ? "pointer-events-none opacity-60" : ""
           }`}
         >
-          <span className="text-4xl">📄</span>
+          <FileInputIcon className="h-12 w-12" />
           <span className="mt-3 text-sm">
             {loading ? "PDFを読み込んでいます…" : "PDFを選択"}
           </span>
@@ -792,14 +821,22 @@ export default function PdfEditPanel() {
 
           {/* Global download all */}
           {hasMultiple && (
-            <div className="mt-4 flex justify-center">
+            <div className="mt-4 flex justify-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={downloadAll}
-                disabled={downloadingAll}
-                className="rounded-xl bg-green-600 px-8 py-3 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40"
+                disabled={downloadingAll || downloadingAllPdfs}
+                className="whitespace-nowrap rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
               >
-                {downloadingAll ? "生成中…" : "すべてダウンロード（ZIP）"}
+                {downloadingAll ? "生成中…" : "ZIPで一括保存"}
+              </button>
+              <button
+                type="button"
+                onClick={downloadAllPdfs}
+                disabled={downloadingAll || downloadingAllPdfs}
+                className="whitespace-nowrap rounded-xl bg-green-600 px-3 py-2.5 text-[12px] font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40 sm:px-5 sm:py-3 sm:text-sm"
+              >
+                {downloadingAllPdfs ? "生成中…" : "PDFを一括保存"}
               </button>
             </div>
           )}

@@ -24,11 +24,169 @@ body {
     sans-serif;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font-family: inherit;
+    font-weight: inherit;
+  }
+}
+
+/* PDF編集画面：スマホ用ボタンサイズ */
+@media (max-width: 639px) {
+  .pdf-btn-compact {
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    color: #4b5563 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-compact:hover:not(:disabled) {
+    background: #f0fdf4 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
+  }
+
+  .pdf-btn-compact:disabled {
+    background: #f3f4f6 !important;
+    border-color: #e5e7eb !important;
+    color: #9ca3af !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+  }
+
+  .pdf-btn-delete {
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+    background: #fef2f2 !important;
+    border: 1px solid #fecaca !important;
+    color: #dc2626 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-delete:hover:not(:disabled) {
+    background: #fee2e2 !important;
+    border-color: #f87171 !important;
+  }
+
+  .pdf-btn-delete:disabled {
+    background: #f3f4f6 !important;
+    border-color: #e5e7eb !important;
+    color: #9ca3af !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+  }
+
+  .pdf-btn-join {
+    font-size: 12px !important;
+    padding: 5px 10px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+  }
+
+  .pdf-toolbar {
+    gap: 4px !important;
+    padding: 4px 6px !important;
+  }
+
+  .pdf-status {
+    width: 72px !important;
+    min-width: 72px !important;
+    flex: 0 0 72px !important;
+    font-size: 11px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+}
+
+/* PDF編集画面：PC版 */
+@media (min-width: 640px) {
+  .pdf-toolbar-pc {
+    display: grid !important;
+    grid-template-columns: 100px max-content max-content max-content 1fr max-content !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+
+  .pdf-toolbar-pc .pdf-status {
+    width: 100px !important;
+    min-width: 100px !important;
+    flex: 0 0 100px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  .pdf-toolbar-pc .pdf-btn-compact,
+  .pdf-toolbar-pc .pdf-btn-delete {
+    justify-self: start !important;
+  }
+
+  .pdf-btn-compact {
+    font-size: 13px !important;
+    padding: 6px 14px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+    background: #f9fafb !important;
+    border: 1px solid #e5e7eb !important;
+    color: #4b5563 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-compact:hover:not(:disabled) {
+    background: #f0fdf4 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
+  }
+
+  .pdf-btn-compact:disabled {
+    background: #f3f4f6 !important;
+    border-color: #e5e7eb !important;
+    color: #9ca3af !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+  }
+
+  .pdf-btn-delete {
+    font-size: 13px !important;
+    padding: 6px 14px !important;
+    line-height: 1.3 !important;
+    border-radius: 8px !important;
+    background: #fef2f2 !important;
+    border: 1px solid #fecaca !important;
+    color: #dc2626 !important;
+    font-weight: 500 !important;
+    cursor: pointer !important;
+    transition: background 120ms ease, border-color 120ms ease !important;
+  }
+
+  .pdf-btn-delete:hover:not(:disabled) {
+    background: #fee2e2 !important;
+    border-color: #f87171 !important;
+  }
+
+  .pdf-btn-delete:disabled {
+    background: #f3f4f6 !important;
+    border-color: #e5e7eb !important;
+    color: #9ca3af !important;
+    cursor: not-allowed !important;
+    opacity: 0.6 !important;
+  }
 }
 
 /* Range slider — shared style for size and quality */

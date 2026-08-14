@@ -12,6 +12,7 @@ type SliderProps = {
   suffix?: string;
   id?: string;
   children?: React.ReactNode;
+  labelClassName?: string;
 };
 
 export default function Slider({
@@ -24,6 +25,7 @@ export default function Slider({
   suffix = "",
   id,
   children,
+  labelClassName,
 }: SliderProps) {
   const [local, setLocal] = useState(value);
   const draggingRef = useRef(false);
@@ -91,7 +93,10 @@ export default function Slider({
     <div className="w-full">
       <div className="flex items-center justify-between">
         {label && (
-          <label htmlFor={id} className="select-none text-sm text-gray-600">
+          <label
+            htmlFor={id}
+            className={`select-none ${labelClassName || "text-sm text-gray-600"}`}
+          >
             {label}
           </label>
         )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import FileInputIcon from "@/components/FileInputIcon";
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -53,7 +54,7 @@ export default function DropZone({
             if (f) onFile(f);
           }}
         />
-        <span className="text-lg">{file ? "📄" : "📁"}</span>
+        <FileInputIcon className="h-6 w-6 shrink-0" />
         {file ? (
           <div className="min-w-0 flex-1">
             <div className="truncate text-sm font-medium text-gray-700">
@@ -98,7 +99,7 @@ export default function DropZone({
 
       {file ? (
         <>
-          <span className="text-2xl sm:text-3xl">📄</span>
+          <FileInputIcon className="h-8 w-8 sm:h-10 sm:w-10" />
           <span className="mt-2 line-clamp-2 break-all text-sm font-medium">
             {file.name}
           </span>
@@ -108,7 +109,7 @@ export default function DropZone({
         </>
       ) : (
         <>
-          <span className="text-2xl sm:text-3xl">⬆️</span>
+          <FileInputIcon className="h-8 w-8 sm:h-10 sm:w-10" />
           <span className="mt-2 text-sm text-gray-500">
             ファイルをドロップ
             <br />
