@@ -172,9 +172,9 @@ function PdfGroupBlock({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [splitTarget, setSplitTarget] = useState<number | null>(null);
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dragSourceIndex, setDragSourceIndex] = useState<number | null>(null);
+  const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
-  const dragIndexRef = useRef<number | null>(null);
 
   const pages = group.pages;
   const selectedIndex = pages.findIndex((p) => p.id === selectedId);
@@ -215,23 +215,44 @@ function PdfGroupBlock({
   }
 
   function handleDragStart(index: number) {
-    dragIndexRef.current = index;
+    setDragSourceIndex(index);
   }
 
   function handleDragOverFn(e: React.DragEvent, index: number) {
     e.preventDefault();
-    setDragOverIndex(index);
+    if (dragSourceIndex === null) return;
+
+    const card = e.currentTarget;
+    const rect = card.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const isLeftHalf = e.clientX < centerX;
+
+    // Visual position (skip dragged card)
+    const vi = index < dragSourceIndex ? index : index - 1;
+    const dropPos = isLeftHalf ? vi : vi + 1;
+
+    setDropIndicatorIndex(dropPos);
   }
 
-  function handleDropReorder(targetIndex: number) {
-    const fromIndex = dragIndexRef.current;
-    dragIndexRef.current = null;
-    setDragOverIndex(null);
-    if (fromIndex === null || fromIndex === targetIndex) return;
+  function handleDropReorder() {
+    if (dragSourceIndex === null || dropIndicatorIndex === null) {
+      setDragSourceIndex(null);
+      setDropIndicatorIndex(null);
+      return;
+    }
+
     const next = [...pages];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(targetIndex, 0, moved);
+    const [moved] = next.splice(dragSourceIndex, 1);
+    next.splice(dropIndicatorIndex, 0, moved);
     onUpdatePages(group.id, next);
+
+    setDragSourceIndex(null);
+    setDropIndicatorIndex(null);
+  }
+
+  function handleDragEnd() {
+    setDragSourceIndex(null);
+    setDropIndicatorIndex(null);
   }
 
   function confirmSplit() {
@@ -315,7 +336,7 @@ function PdfGroupBlock({
           onClick={handleAddPdf}
           className="shrink-0 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
         >
-          ＋ PDFを追加
+          ＋ PDFを結合
         </button>
       </div>
 
@@ -367,52 +388,78 @@ function PdfGroupBlock({
       <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 md:grid-cols-5">
         {pages.map((page, index) => {
           const isSelected = page.id === selectedId;
-          const isDragOver = dragOverIndex === index;
+          const isDragging = dragSourceIndex === index;
+
+          // Calculate if this card should show the indicator
+          const vi = index < (dragSourceIndex ?? Infinity) ? index : index - 1;
+          const showLeftIndicator =
+            dragSourceIndex !== null &&
+            dropIndicatorIndex !== null &&
+            !isDragging &&
+            vi === dropIndicatorIndex;
+          const showRightIndicator =
+            dragSourceIndex !== null &&
+            dropIndicatorIndex !== null &&
+            !isDragging &&
+            vi + 1 === dropIndicatorIndex;
+
           return (
-            <div
-              key={page.id}
-              draggable
-              onDragStart={() => handleDragStart(index)}
-              onDragOver={(e) => handleDragOverFn(e, index)}
-              onDragLeave={() => setDragOverIndex(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                handleDropReorder(index);
-              }}
-              onClick={() => selectPage(page.id)}
-              className={`group relative cursor-pointer rounded-xl border-2 bg-white p-1.5 transition sm:p-2 ${
-                isSelected
-                  ? "border-green-400 bg-green-50"
-                  : isDragOver
-                    ? "border-green-300 border-dashed"
-                    : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <div className="aspect-[3/4] overflow-hidden rounded-lg bg-gray-50">
-                {page.thumbnail ? (
-                  <img
-                    src={page.thumbnail}
-                    alt={`ページ ${index + 1}`}
-                    className="h-full w-full object-contain"
-                    style={{
-                      transform: page.rotation !== 0 ? `rotate(${page.rotation}deg)` : undefined,
-                    }}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-gray-400">
-                    読み込み中…
-                  </div>
-                )}
+            <div key={page.id} className="relative">
+              {/* Left insertion indicator */}
+              {showLeftIndicator && (
+                <div className="absolute -left-[5px] top-1 bottom-1 w-[3px] rounded-full bg-green-500" />
+              )}
+
+              <div
+                draggable
+                onDragStart={() => handleDragStart(index)}
+                onDragOver={(e) => handleDragOverFn(e, index)}
+                onDragLeave={() => setDropIndicatorIndex(null)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleDropReorder();
+                }}
+                onDragEnd={handleDragEnd}
+                onClick={() => selectPage(page.id)}
+                className={`group relative cursor-pointer rounded-xl border-2 bg-white p-1.5 transition sm:p-2 ${
+                  isDragging
+                    ? "opacity-40 shadow-md"
+                    : isSelected
+                      ? "border-green-400 bg-green-50"
+                      : "border-gray-200 hover:border-gray-300"
+                }`}
+              >
+                <div className="aspect-[3/4] overflow-hidden rounded-lg bg-gray-50">
+                  {page.thumbnail ? (
+                    <img
+                      src={page.thumbnail}
+                      alt={`ページ ${index + 1}`}
+                      className="h-full w-full object-contain"
+                      style={{
+                        transform: page.rotation !== 0 ? `rotate(${page.rotation}deg)` : undefined,
+                      }}
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-gray-400">
+                      読み込み中…
+                    </div>
+                  )}
+                </div>
+                <div className="mt-1 flex items-center justify-between px-0.5">
+                  <span className="text-xs font-medium text-gray-500">{index + 1}</span>
+                  {page.rotation !== 0 && (
+                    <span className="text-[10px] text-gray-400">{page.rotation}°</span>
+                  )}
+                </div>
+                <div className="absolute left-1 top-1 hidden rounded bg-black/5 px-1 text-[10px] text-gray-400 group-hover:block">
+                  ⠿
+                </div>
               </div>
-              <div className="mt-1 flex items-center justify-between px-0.5">
-                <span className="text-xs font-medium text-gray-500">{index + 1}</span>
-                {page.rotation !== 0 && (
-                  <span className="text-[10px] text-gray-400">{page.rotation}°</span>
-                )}
-              </div>
-              <div className="absolute left-1 top-1 hidden rounded bg-black/5 px-1 text-[10px] text-gray-400 group-hover:block">
-                ⠿
-              </div>
+
+              {/* Right insertion indicator */}
+              {showRightIndicator && (
+                <div className="absolute -right-[5px] top-1 bottom-1 w-[3px] rounded-full bg-green-500" />
+              )}
             </div>
           );
         })}
@@ -667,16 +714,6 @@ export default function PdfEditPanel() {
               >
                 ＋ PDFを追加
               </button>
-              {hasMultiple && (
-                <button
-                  type="button"
-                  onClick={downloadAll}
-                  disabled={downloadingAll}
-                  className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-40"
-                >
-                  {downloadingAll ? "生成中…" : "すべてダウンロード"}
-                </button>
-              )}
             </div>
           </div>
 
