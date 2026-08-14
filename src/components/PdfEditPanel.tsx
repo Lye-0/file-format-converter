@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 
 /* ── Dynamic pdfjs-dist import (browser only) ── */
 
@@ -98,7 +98,7 @@ async function generateGroupPdf(
     const [copied] = await out.copyPages(srcDoc, [p.sourcePageIndex]);
     const page = out.addPage(copied);
       if (p.rotation !== 0) {
-        page.setRotation(p.rotation);
+        page.setRotation(degrees(p.rotation));
       }
   }
   return out.save();
