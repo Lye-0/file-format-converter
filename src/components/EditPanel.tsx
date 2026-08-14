@@ -428,7 +428,7 @@ export default function EditPanel() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-4xl px-4 py-6">
+    <section className="mx-auto w-full max-w-4xl px-4 py-4 sm:py-6">
       <input
         ref={fileInputRef}
         type="file"
@@ -440,92 +440,94 @@ export default function EditPanel() {
         }}
       />
 
-      {/* Two-column layout */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Left column: Previews */}
-        <div className="flex flex-col gap-4">
-          {/* Original image —兼ねる入力欄 */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-gray-700">元画像</h3>
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={handleSourceClick}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") handleSourceClick();
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setSourceDrag(true);
-              }}
-              onDragLeave={() => setSourceDrag(false)}
-              onDrop={handleSourceDrop}
-              onMouseEnter={() => file && setSourceHover(true)}
-              onMouseLeave={() => setSourceHover(false)}
-              className={`relative mt-3 flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl transition ${
-                sourceDrag
-                  ? "border-2 border-green-400 bg-green-50"
-                  : "border-2 border-transparent bg-gray-50 hover:border-gray-200"
-              }`}
-              style={{ aspectRatio: "16/9" }}
-            >
-              {sourcePreviewLoading ? (
-                <span className="text-sm text-gray-400">プレビュー生成中…</span>
-              ) : sourcePreviewUrl ? (
-                <>
-                  <img
-                    src={sourcePreviewUrl}
-                    alt="元画像プレビュー"
-                    onLoad={handleOriginalImageLoad}
-                    onError={createConvertedSourcePreview}
-                    className="max-h-full max-w-full object-contain"
-                  />
-                  {/* Hover overlay */}
-                  {sourceHover && !sourceDrag && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity">
-                      <span className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm">
-                        画像を変更
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="flex flex-col items-center gap-2 text-gray-400">
-                  <span className="text-3xl">📁</span>
-                  <span className="text-sm">画像を選択</span>
-                  <span className="text-xs">またはここにドロップ</span>
-                </div>
-              )}
-              {/* Drag feedback */}
-              {sourceDrag && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
-                    ここにドロップ
-                  </span>
-                </div>
-              )}
-            </div>
-            {file && (
-              <div className="mt-3 space-y-1.5">
-                <FileInfoRow label="ファイル名" value={file.name} />
-                <FileInfoRow label="形式" value={normalizedExt.toUpperCase()} />
-                <FileInfoRow
-                  label="解像度"
-                  value={
-                    sourceWidth && sourceHeight
-                      ? `${sourceWidth} × ${sourceHeight}px`
-                      : "—"
-                  }
+      {/* Grid: each card is a direct child for order control */}
+      <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
+
+        {/* ── 元画像 ── */}
+        <div className="order-1 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+          <h3 className="text-sm font-semibold text-gray-700">元画像</h3>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={handleSourceClick}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") handleSourceClick();
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setSourceDrag(true);
+            }}
+            onDragLeave={() => setSourceDrag(false)}
+            onDrop={handleSourceDrop}
+            onMouseEnter={() => file && setSourceHover(true)}
+            onMouseLeave={() => setSourceHover(false)}
+            className={`relative mt-3 flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl transition ${
+              sourceDrag
+                ? "border-2 border-green-400 bg-green-50"
+                : "border-2 border-transparent bg-gray-50 hover:border-gray-200"
+            } ${
+              !file
+                ? "aspect-[4/3] sm:aspect-video"
+                : "aspect-video"
+            }`}
+          >
+            {sourcePreviewLoading ? (
+              <span className="text-sm text-gray-400">プレビュー生成中…</span>
+            ) : sourcePreviewUrl ? (
+              <>
+                <img
+                  src={sourcePreviewUrl}
+                  alt="元画像プレビュー"
+                  onLoad={handleOriginalImageLoad}
+                  onError={createConvertedSourcePreview}
+                  className="max-h-full max-w-full object-contain"
                 />
-                <FileInfoRow label="ファイルサイズ" value={formatBytes(file.size)} />
+                {sourceHover && !sourceDrag && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity">
+                    <span className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm">
+                      画像を変更
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-1.5 text-gray-400 sm:gap-2">
+                <span className="text-2xl sm:text-3xl">📁</span>
+                <span className="text-xs sm:text-sm">画像を選択</span>
+                <span className="text-[10px] sm:text-xs">またはここにドロップ</span>
+              </div>
+            )}
+            {sourceDrag && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
+                  ここにドロップ
+                </span>
               </div>
             )}
           </div>
+          {file && (
+            <div className="mt-2 space-y-1 sm:mt-3 sm:space-y-1.5">
+              <FileInfoRow label="ファイル名" value={file.name} />
+              <FileInfoRow label="形式" value={normalizedExt.toUpperCase()} />
+              <FileInfoRow
+                label="解像度"
+                value={
+                  sourceWidth && sourceHeight
+                    ? `${sourceWidth} × ${sourceHeight}px`
+                    : "—"
+                }
+              />
+              <FileInfoRow label="ファイルサイズ" value={formatBytes(file.size)} />
+            </div>
+          )}
+        </div>
 
-          {/* Edited image */}
-          <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        {/* ── 編集後 ── */}
+        <div className="order-3 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
             <h3 className="text-sm font-semibold text-gray-700">編集後</h3>
-            <div className="relative mt-3 flex aspect-video items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+            <div className={`relative mt-3 flex items-center justify-center overflow-hidden rounded-xl bg-gray-50 ${
+              editedUrl ? "aspect-video" : "aspect-[4/3] sm:aspect-video"
+            }`}>
               {editedUrl ? (
                 <img
                   src={editedUrl}
@@ -546,7 +548,7 @@ export default function EditPanel() {
                 </div>
               )}
             </div>
-            <div className="mt-3 space-y-1.5">
+            <div className="mt-2 space-y-1 sm:mt-3 sm:space-y-1.5">
               <FileInfoRow label="ファイル名" value={outName} />
               <FileInfoRow label="形式" value={target.toUpperCase()} />
               <FileInfoRow
@@ -568,15 +570,14 @@ export default function EditPanel() {
               type="button"
               onClick={handleDownload}
               disabled={!downloadUrlRef.current || previewLoading}
-              className="mt-4 w-full rounded-xl bg-green-600 py-3 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40"
+              className="mt-3 w-full rounded-xl bg-green-600 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40 sm:mt-4 sm:py-3"
             >
               ダウンロード
             </button>
           </div>
-        </div>
 
-        {/* Right column: Settings */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+        {/* ── 編集設定 ── */}
+        <div className="order-2 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
           <h3 className="text-sm font-semibold text-gray-700">編集設定</h3>
 
           {/* Output format */}
@@ -772,7 +773,7 @@ export default function EditPanel() {
         </p>
       )}
 
-      <p className="mt-4 text-center text-xs leading-5 text-gray-400">
+      <p className="mt-4 text-left text-xs leading-5 text-gray-400 sm:text-center">
         ※ 設定を変更すると自動的にプレビューが更新されます。
         PDFページ編集は次のステップで追加します。
       </p>
