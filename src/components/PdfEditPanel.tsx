@@ -97,57 +97,14 @@ async function generateGroupPdf(
     const srcDoc = await PDFDocument.load(srcBuf);
     const [copied] = await out.copyPages(srcDoc, [p.sourcePageIndex]);
     const page = out.addPage(copied);
-    if (p.rotation !== 0) {
-      page.setRotation((p.rotation / 90) as 0 | 90 | 180 | 270 as any);
-    }
+      if (p.rotation !== 0) {
+        page.setRotation(p.rotation);
+      }
   }
   return out.save();
 }
 
 /* ── Split modal ── */
-
-function SplitModal({
-  pageIndex,
-  total,
-  onConfirm,
-  onCancel,
-}: {
-  pageIndex: number;
-  total: number;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-lg">
-        <h3 className="text-base font-semibold text-gray-800">PDFを分割</h3>
-        <p className="mt-2 text-sm text-gray-600">
-          {pageIndex + 1}ページ目を含めて分割します
-        </p>
-        <div className="mt-3 rounded-lg bg-gray-50 p-3 text-sm text-gray-600">
-          <div>PDF 1：1〜{pageIndex}ページ</div>
-          <div>PDF 2：{pageIndex + 1}〜{total}ページ</div>
-        </div>
-        <div className="mt-5 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-          >
-            キャンセル
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-          >
-            分割
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── Single PDF group block ── */
 
@@ -188,7 +145,6 @@ function PdfGroupBlock({
   setError: (msg: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [splitTarget, setSplitTarget] = useState<number | null>(null);
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -295,18 +251,6 @@ function PdfGroupBlock({
   }
 
   /* ── Split ── */
-
-  function confirmSplit() {
-    if (splitTarget === null || splitTarget < 0 || splitTarget >= pages.length) {
-      setSplitTarget(null);
-      return;
-    }
-    onSplit(group.id, splitTarget);
-    setSplitTarget(null);
-    setSelectedId(null);
-  }
-
-  /* ── Add external PDF ── */
 
   function handleAddPdf() {
     const input = document.createElement("input");
@@ -417,7 +361,8 @@ function PdfGroupBlock({
           disabled={selectedIndex < 0 || selectedIndex === 0 || pages.length < 2}
           onClick={() => {
             if (selectedIndex > 0 && selectedIndex < pages.length) {
-              setSplitTarget(selectedIndex);
+              onSplit(group.id, selectedIndex);
+              setSelectedId(null);
             }
           }}
           className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40"
@@ -533,16 +478,6 @@ function PdfGroupBlock({
           {exporting ? "生成中…" : "ダウンロード"}
         </button>
       </div>
-
-      {/* Split modal */}
-      {splitTarget !== null && (
-        <SplitModal
-          pageIndex={splitTarget}
-          total={pages.length}
-          onConfirm={confirmSplit}
-          onCancel={() => setSplitTarget(null)}
-        />
-      )}
 
       {/* Delete group confirmation modal */}
       {confirmDeleteGroupId !== null && (
