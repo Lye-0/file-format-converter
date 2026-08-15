@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  canShareFile,
   isFileShareSupported,
   shareFile,
 } from "@/lib/utils/share";
@@ -69,9 +70,15 @@ export default function FileActionButtons({
   const [shareSupported, setShareSupported] = useState(false);
 
   useEffect(() => {
-    // Blobの生成有無とは分離して、ブラウザのWeb Share API対応だけで表示判定する。
+    // Blobが未生成でも、ブラウザがファイル共有に対応していればボタンを表示する。
+    // すでにBlobがある場合は、その実ファイル形式までcanShareで確認する。
+    const blob = getShareBlob?.();
+    if (blob && filename) {
+      setShareSupported(canShareFile(blob, filename));
+      return;
+    }
     setShareSupported(isFileShareSupported());
-  }, []);
+  }, [getShareBlob, filename]);
 
   async function handleShare() {
     try {
