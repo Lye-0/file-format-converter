@@ -1,21 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { canShareFile, shareFile } from "@/lib/utils/share";
+import {
+  isFileShareSupported,
+  shareFile,
+} from "@/lib/utils/share";
 
 type FileActionButtonsProps = {
   /** ダウンロード時のコールバック */
-  onDownload: () => void;
-  /** 共有用のBlob取得関数（呼び出し時にBlobを生成） */
-  getShareBlob: () => Blob | null;
-  /** 共有時のファイル名 */
-  filename: string;
+  onDownload: () => void | Promise<void>;
+  /**
+   * 共有処理を呼び出し側で行う場合のコールバック。
+   * 未生成Blobを遅延生成してから共有したい画面で使う。
+   */
+  onShare?: () => void | Promise<void>;
+  /** 共有済み/生成済みBlobを直接使う場合の取得関数 */
+  getShareBlob?: () => Blob | null;
+  /** 共有時のファイル名（getShareBlobを使う場合に必要） */
+  filename?: string;
   /** 無効化（変換中など） */
   disabled?: boolean;
   /** エラーメッセージ表示コールバック */
   onError?: (msg: string) => void;
-  /** 共有準備完了コールバック */
-  onShareReady?: () => void;
 };
 
 function ShareIcon({ className = "" }: { className?: string }) {
@@ -54,53 +60,41 @@ function ShareIcon({ className = "" }: { className?: string }) {
 
 export default function FileActionButtons({
   onDownload,
+  onShare,
   getShareBlob,
   filename,
   disabled = false,
   onError,
-  onShareReady,
 }: FileActionButtonsProps) {
   const [shareSupported, setShareSupported] = useState(false);
-  const [shareError, setShareError] = useState(false);
 
   useEffect(() => {
-    // 初回マウント時に共有機能を判定
-    const blob = getShareBlob();
-    if (blob) {
-      setShareSupported(canShareFile(blob, filename));
-    } else {
-      setShareSupported(false);
-    }
-  }, [getShareBlob, filename]);
-
-  // ブロブが変化したときに共有対応を再判定
-  useEffect(() => {
-    const blob = getShareBlob();
-    const supported = blob ? canShareFile(blob, filename) : false;
-    setShareSupported(supported);
-    if (shareError && supported) {
-      setShareError(false);
-    }
-  }, [getShareBlob, filename, shareError]);
+    // Blobの生成有無とは分離して、ブラウザのWeb Share API対応だけで表示判定する。
+    setShareSupported(isFileShareSupported());
+  }, []);
 
   async function handleShare() {
-    const blob = getShareBlob();
-    if (!blob) {
-      onError?.("共有するファイルがありません");
-      return;
-    }
+    try {
+      // 変換/PDFのように、共有押下時にBlobを遅延生成する画面はこちらを使う。
+      if (onShare) {
+        await onShare();
+        return;
+      }
 
-    const { ok, cancelled } = await shareFile(blob, filename);
+      // 画像編集のように、すでに生成済みBlobがある画面はこちらを使う。
+      const blob = getShareBlob?.();
+      if (!blob || !filename) {
+        onError?.("共有するファイルがありません");
+        return;
+      }
 
-    if (cancelled) {
-      // ユーザーキャンセル — 何もしない
-      return;
-    }
-
-    if (!ok) {
-      setShareError(true);
-      onError?.("このファイルを共有できませんでした。もう一度共有ボタンを押してください。");
-      onShareReady?.();
+      const { ok, cancelled } = await shareFile(blob, filename);
+      if (cancelled) return;
+      if (!ok) {
+        onError?.("このファイルを共有できませんでした");
+      }
+    } catch {
+      onError?.("このファイルを共有できませんでした");
     }
   }
 
