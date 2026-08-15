@@ -25,24 +25,26 @@
 
 | 種類 | 入力形式 | 出力形式 |
 |---|---|---|
-| **画像** | PNG / JPG / JPEG / WebP / AVIF / GIF / BMP / TIFF / TIF / HEIC / HEIF / SVG | PNG / JPG / WebP / AVIF / GIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
+| **画像** | PNG / JPG / JPEG / WebP / AVIF / GIF / BMP / TIFF / TIF / HEIC / HEIF / SVG | PNG / JPG / WebP / AVIF / GIF / BMP / TIFF / ICO / PDF |
 | **音声** | MP3 / WAV / FLAC / OGG / AAC / M4A | MP3 / WAV / FLAC / OGG / AAC / M4A |
 | **PDF** | PDF | PNG / JPG |
 
 > 入力形式によって、選択できる出力形式は異なります。
+>
+> HEIC / HEIF は入力に対応していますが、HEIC / HEIF への出力には現在対応していません。
 
 ## 画像変換の対応関係
 
 | 入力 | 主な出力 |
 |---|---|
-| PNG | JPG / WebP / AVIF / GIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
-| JPG / JPEG | PNG / WebP / AVIF / GIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
-| WebP | PNG / JPG / AVIF / GIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
-| AVIF | PNG / JPG / WebP / GIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
-| GIF | PNG / JPG / WebP / AVIF / BMP / TIFF / HEIC / HEIF / ICO / PDF |
-| BMP | PNG / JPG / WebP / AVIF / GIF / TIFF / HEIC / HEIF / ICO / PDF |
-| TIFF / TIF | PNG / JPG / WebP / AVIF / GIF / BMP / HEIC / HEIF / ICO / PDF |
-| HEIC / HEIF | PNG / JPG / WebP / AVIF / GIF / BMP / TIFF / ICO / PDF |
+| PNG | JPG / WebP / AVIF / GIF / BMP / TIFF / ICO / PDF |
+| JPG / JPEG | PNG / WebP / AVIF / GIF / BMP / TIFF / ICO / PDF |
+| WebP | PNG / JPG / AVIF / GIF / BMP / TIFF / ICO / PDF |
+| AVIF | PNG / JPG / WebP / GIF / BMP / TIFF / ICO / PDF |
+| GIF | PNG / JPG / WebP / AVIF / BMP / TIFF / ICO / PDF |
+| BMP | PNG / JPG / WebP / AVIF / GIF / TIFF / ICO / PDF |
+| TIFF / TIF | PNG / JPG / WebP / AVIF / GIF / BMP / ICO / PDF |
+| HEIC / HEIF | PNG / JPG / WebP / AVIF |
 | SVG | PNG / JPG / WebP / AVIF / PDF |
 
 ## 音声変換の対応関係

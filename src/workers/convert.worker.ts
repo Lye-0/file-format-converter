@@ -4,6 +4,7 @@ import * as Comlink from "comlink";
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { PDFDocument } from "pdf-lib";
 import { pngToIco } from "@/lib/ico";
+import { decodeBmp, encodeBmp } from "@/lib/bmp";
 
 export type ImageOpts = {
   scalePct?: number;
@@ -15,8 +16,6 @@ export type ImageOpts = {
   flipY?: boolean;
   quality?: number;
 };
-
-/* ---------- wasm-vips（画像） ---------- */
 
 type VipsModule = {
   default?: (options?: Record<string, unknown>) => Promise<any>;
@@ -35,17 +34,106 @@ async function getVips() {
       const mod = await dynamicImport("/vips/vips-es6.js");
       const Vips = mod.default ?? (mod as any);
 
-      const vips = await Vips({
+      return await Vips({
         locateFile: (file: string) => `/vips/${file}`,
       });
-      return vips;
     })();
   }
 
   return vipsPromise;
 }
 
-/* ---------- ffmpeg.wasm（音声） ---------- */
+let libheifPromise: Promise<any> | null = null;
+
+async function getLibheif() {
+  if (!libheifPromise) {
+    libheifPromise = import("libheif-js/wasm-bundle").then(
+      (mod) => mod.default ?? mod,
+    );
+  }
+
+  return libheifPromise;
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err) return err;
+
+  if (err && typeof err === "object" && "message" in err) {
+    const message = (err as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+  }
+
+  try {
+    const text = String(err);
+    return text && text !== "[object Object]" ? text : "不明なエラー";
+  } catch {
+    return "不明なエラー";
+  }
+}
+
+async function decodeHeif(buffer: ArrayBuffer) {
+  const libheif = await getLibheif();
+  const decoder = new libheif.HeifDecoder();
+  const images = decoder.decode(new Uint8Array(buffer));
+
+  if (!images?.length) {
+    throw new Error("HEIC / HEIF画像をデコードできませんでした。");
+  }
+
+  const image = images[0];
+  const width = image.get_width();
+  const height = image.get_height();
+  const data = new Uint8ClampedArray(width * height * 4);
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      image.display({ data, width, height }, (displayData: unknown) => {
+        if (!displayData) {
+          reject(new Error("HEIC / HEIF画像の画素展開に失敗しました。"));
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    return {
+      data: new Uint8Array(data.buffer),
+      width,
+      height,
+    };
+  } finally {
+    if (typeof image.free === "function") image.free();
+  }
+}
+
+async function loadImage(buffer: ArrayBuffer, sourceExt: string, vips: any) {
+  const ext = sourceExt.toLowerCase();
+
+  if (ext === "heic" || ext === "heif") {
+    const decoded = await decodeHeif(buffer);
+    return vips.Image.newFromMemory(
+      decoded.data,
+      decoded.width,
+      decoded.height,
+      4,
+      "uchar",
+    );
+  }
+
+  if (ext === "bmp") {
+    const decoded = decodeBmp(buffer);
+    return vips.Image.newFromMemory(
+      decoded.data,
+      decoded.width,
+      decoded.height,
+      4,
+      "uchar",
+    );
+  }
+
+  return vips.Image.newFromBuffer(new Uint8Array(buffer));
+}
 
 let ffmpeg: FFmpeg | null = null;
 
@@ -61,8 +149,6 @@ async function getFFmpeg() {
 
   return ffmpeg;
 }
-
-/* ---------- 画像編集共通処理 ---------- */
 
 function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
   let out = img;
@@ -80,6 +166,9 @@ function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
   } else if (opts.rotate === 270) {
     out = out.rot(vips.Angle.d270);
   }
+
+  if (opts.flipX) out = out.flip(vips.Direction.horizontal);
+  if (opts.flipY) out = out.flip(vips.Direction.vertical);
 
   const requestedWidth =
     typeof opts.width === "number" && opts.width > 0 ? opts.width : undefined;
@@ -113,19 +202,60 @@ function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
   return out;
 }
 
-/* ---------- Worker API ---------- */
+function imageToBmp(img: any): Uint8Array {
+  let normalized = img;
+  let temporary: any = null;
+
+  try {
+    if (normalized.interpretation !== "srgb") {
+      temporary = normalized.colourspace("srgb");
+      normalized = temporary;
+    }
+
+    if (normalized.format !== "uchar") {
+      const casted = normalized.cast("uchar");
+      if (temporary) temporary.delete();
+      temporary = casted;
+      normalized = casted;
+    }
+
+    let channels: 3 | 4 = normalized.hasAlpha() ? 4 : 3;
+    let packed = normalized;
+    let packedTemporary: any = null;
+
+    if (normalized.bands > channels) {
+      packedTemporary = normalized.extractBand(0, { n: channels });
+      packed = packedTemporary;
+    } else if (normalized.bands < 3) {
+      packedTemporary = normalized.colourspace("srgb");
+      packed = packedTemporary;
+      channels = packed.hasAlpha() ? 4 : 3;
+    }
+
+    const pixels = packed.writeToMemory() as Uint8Array;
+    const bmp = encodeBmp(pixels, packed.width, packed.height, channels);
+
+    if (packedTemporary) packedTemporary.delete();
+
+    return bmp;
+  } finally {
+    if (temporary) temporary.delete();
+  }
+}
 
 const api = {
-  /**
-   * 画像 → 画像 / ICO
-   */
-  async convertImage(buffer: ArrayBuffer, target: string, opts: ImageOpts = {}) {
+  async convertImage(
+    buffer: ArrayBuffer,
+    sourceExt: string,
+    target: string,
+    opts: ImageOpts = {},
+  ) {
     let img: any = null;
 
     try {
       const vips = await getVips();
 
-      img = vips.Image.newFromBuffer(new Uint8Array(buffer));
+      img = await loadImage(buffer, sourceExt, vips);
       img = applyImageTransforms(img, vips, opts);
 
       if (target === "ico") {
@@ -145,12 +275,25 @@ const api = {
         return Comlink.transfer(ab, [ab]);
       }
 
+      if (target === "bmp") {
+        const bmp = imageToBmp(img);
+
+        img.delete();
+        img = null;
+
+        const ab = bmp.slice().buffer;
+        return Comlink.transfer(ab, [ab]);
+      }
+
+      if (target === "heic" || target === "heif") {
+        throw new Error("HEIC / HEIFへの出力には現在対応していません。");
+      }
+
       const ext = target === "jpeg" ? "jpg" : target;
-      const q = opts.quality ?? 82;
       const options: Record<string, unknown> = {};
 
-      if (["jpg", "webp", "avif", "heic", "heif"].includes(ext)) {
-        options.Q = q;
+      if (["jpg", "webp", "avif"].includes(ext)) {
+        options.Q = opts.quality ?? 82;
       }
 
       const out: Uint8Array = img.writeToBuffer("." + ext, options);
@@ -172,47 +315,58 @@ const api = {
           // ignore cleanup error
         }
       }
-      throw new Error(
-        `画像処理に失敗しました: ${err instanceof Error ? err.message : "不明なエラー"}`,
-      );
+
+      throw new Error(`画像処理に失敗しました: ${errorMessage(err)}`);
     }
   },
 
-  /**
-   * 画像 → PDF
-   */
-  async imageToPdf(buffer: ArrayBuffer, opts: ImageOpts = {}) {
+  async imageToPdf(
+    buffer: ArrayBuffer,
+    sourceExt: string,
+    opts: ImageOpts = {},
+  ) {
     const vips = await getVips();
+    let img: any = null;
 
-    let img = vips.Image.newFromBuffer(new Uint8Array(buffer));
-    img = applyImageTransforms(img, vips, opts);
+    try {
+      img = await loadImage(buffer, sourceExt, vips);
+      img = applyImageTransforms(img, vips, opts);
 
-    const png: Uint8Array = img.writeToBuffer(".png");
-    const w = img.width;
-    const h = img.height;
+      const png: Uint8Array = img.writeToBuffer(".png");
+      const w = img.width;
+      const h = img.height;
 
-    img.delete();
+      img.delete();
+      img = null;
 
-    const pdf = await PDFDocument.create();
-    const embedded = await pdf.embedPng(png);
-    const page = pdf.addPage([w, h]);
+      const pdf = await PDFDocument.create();
+      const embedded = await pdf.embedPng(png);
+      const page = pdf.addPage([w, h]);
 
-    page.drawImage(embedded, {
-      x: 0,
-      y: 0,
-      width: w,
-      height: h,
-    });
+      page.drawImage(embedded, {
+        x: 0,
+        y: 0,
+        width: w,
+        height: h,
+      });
 
-    const bytes = await pdf.save();
-    const ab = bytes.slice().buffer;
+      const bytes = await pdf.save();
+      const ab = bytes.slice().buffer;
 
-    return Comlink.transfer(ab, [ab]);
+      return Comlink.transfer(ab, [ab]);
+    } catch (err) {
+      if (img) {
+        try {
+          img.delete();
+        } catch {
+          // ignore cleanup error
+        }
+      }
+
+      throw new Error(`PDF生成に失敗しました: ${errorMessage(err)}`);
+    }
   },
 
-  /**
-   * 音声 → 音声
-   */
   async convertAudio(
     buffer: ArrayBuffer,
     inputName: string,
