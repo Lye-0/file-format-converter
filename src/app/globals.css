@@ -35,6 +35,12 @@ body {
   }
 }
 
+/* 画像編集のドロップ領域内では、子要素がdragenter/dragleaveの対象にならないようにする。
+   親のドロップ領域だけがドラッグイベントを受けることで表示のちらつきを防ぐ。 */
+section > input[type="file"][accept="image/*"] + div [role="button"] > * {
+  pointer-events: none;
+}
+
 /* Range slider — shared style for size and quality */
 .slider {
   --fill: 0%;
