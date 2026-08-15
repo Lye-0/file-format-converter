@@ -44,11 +44,13 @@ export default function ConvertPanel() {
     }
   }
 
-  function startFauxProgress() {
+  function startFauxProgress(outputTarget: string) {
     stopFauxProgress();
+    const step = outputTarget === "avif" ? 0.015 : 0.03;
+
     fauxRef.current = window.setInterval(() => {
       setProgress((p) => {
-        if (p < 0.9) return p + 0.03;
+        if (p < 0.9) return Math.min(0.9, p + step);
         return p;
       });
     }, 100);
@@ -71,10 +73,10 @@ export default function ConvertPanel() {
     setError("");
     setShareError("");
 
-    // PDF入力だけは既存の疑似進捗を維持する。
-    // 画像はwasm-vips、音声はFFmpegの実進捗を使う。
-    const useFauxProgress = cat === "pdf";
-    if (useFauxProgress) startFauxProgress();
+    // 音声はFFmpegの実進捗、それ以外は従来の疑似進捗を使う。
+    // AVIFは実際の待ち時間に合わせて疑似進捗をゆっくり進める。
+    const useFauxProgress = cat !== "audio";
+    if (useFauxProgress) startFauxProgress(target);
 
     try {
       const blob = await convertFile(

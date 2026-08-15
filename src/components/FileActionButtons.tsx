@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   canShareFile,
   isFileShareSupported,
@@ -63,7 +63,11 @@ export default function FileActionButtons({
   showProgress = false,
 }: FileActionButtonsProps) {
   const [shareSupported, setShareSupported] = useState(false);
-  const progressPct = Math.max(0, Math.min(100, progress * 100));
+  const [fauxProgress, setFauxProgress] = useState(0);
+  const fauxRef = useRef<number | null>(null);
+  const complete = progress >= 1;
+  const isAvif = filename?.toLowerCase().endsWith(".avif") ?? false;
+  const progressPct = Math.max(0, Math.min(100, fauxProgress * 100));
 
   useEffect(() => {
     const blob = getShareBlob?.();
@@ -73,6 +77,40 @@ export default function FileActionButtons({
     }
     setShareSupported(isFileShareSupported());
   }, [getShareBlob, filename]);
+
+  useEffect(() => {
+    if (fauxRef.current !== null) {
+      clearInterval(fauxRef.current);
+      fauxRef.current = null;
+    }
+
+    if (!showProgress) {
+      setFauxProgress(0);
+      return;
+    }
+
+    if (complete) {
+      setFauxProgress(1);
+      return;
+    }
+
+    setFauxProgress(0);
+    const step = isAvif ? 0.015 : 0.03;
+
+    fauxRef.current = window.setInterval(() => {
+      setFauxProgress((p) => {
+        if (p < 0.9) return Math.min(0.9, p + step);
+        return p;
+      });
+    }, 100);
+
+    return () => {
+      if (fauxRef.current !== null) {
+        clearInterval(fauxRef.current);
+        fauxRef.current = null;
+      }
+    };
+  }, [showProgress, complete, isAvif]);
 
   async function handleShare() {
     try {
@@ -103,11 +141,13 @@ export default function FileActionButtons({
         type="button"
         onClick={onDownload}
         disabled={disabled}
-        className="relative flex flex-1 items-center justify-center overflow-hidden rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40 sm:px-5 sm:py-2"
+        className={`relative flex flex-1 items-center justify-center overflow-hidden rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:cursor-not-allowed sm:px-5 sm:py-2 ${
+          showProgress ? "" : "disabled:opacity-40"
+        }`}
       >
         {showProgress && (
           <span
-            className="absolute inset-y-0 left-0 bg-green-800/35 transition-[width] duration-100 ease-linear"
+            className="absolute inset-y-0 left-0 bg-green-900/45 transition-[width] duration-100 ease-linear"
             style={{ width: `${progressPct}%` }}
             aria-hidden="true"
           />
