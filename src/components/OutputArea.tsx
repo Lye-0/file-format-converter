@@ -10,7 +10,7 @@ type OutputAreaProps = {
   error: string;
   shareError: string;
   onDownload: () => void;
-  onShare: () => void;
+  onShare: () => void | Promise<void>;
   getShareBlob: () => Blob | null;
 };
 
@@ -49,6 +49,7 @@ export default function OutputArea({
       </p>
       <FileActionButtons
         onDownload={onDownload}
+        onShare={onShare}
         getShareBlob={getShareBlob}
         filename={outName}
         disabled={isConverting}
