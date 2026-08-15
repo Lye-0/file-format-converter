@@ -3,19 +3,29 @@
  */
 
 /**
- * このブラウザが Web Share API のファイル共有機能を持っているか確認する。
- * Blob がまだ生成されていない段階でも共有ボタンの表示判定に使える。
+ * このブラウザが Web Share API の「ファイル共有」に対応しているか確認する。
+ * 実ファイルのBlobがまだ未生成でも表示判定できるよう、ダミーFileでcanShareを確認する。
  */
 export function isFileShareSupported(): boolean {
   if (typeof navigator === "undefined") return false;
-  return typeof navigator.share === "function" && typeof navigator.canShare === "function";
+  if (typeof navigator.share !== "function" || typeof navigator.canShare !== "function") {
+    return false;
+  }
+
+  try {
+    const testFile = new File([""], "share-test.txt", { type: "text/plain" });
+    return navigator.canShare({ files: [testFile] });
+  } catch {
+    return false;
+  }
 }
 
 /**
  * 指定したBlobをファイルとして共有できるか確認する
  */
 export function canShareFile(blob: Blob, filename: string): boolean {
-  if (!isFileShareSupported()) return false;
+  if (typeof navigator === "undefined") return false;
+  if (typeof navigator.canShare !== "function") return false;
 
   try {
     const file = new File([blob], filename, { type: blob.type });
@@ -33,6 +43,9 @@ export async function shareFile(
   blob: Blob,
   filename: string,
 ): Promise<{ ok: boolean; cancelled: boolean }> {
+  if (typeof navigator === "undefined" || typeof navigator.share !== "function") {
+    return { ok: false, cancelled: false };
+  }
   if (!canShareFile(blob, filename)) {
     return { ok: false, cancelled: false };
   }
