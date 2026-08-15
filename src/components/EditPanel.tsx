@@ -223,64 +223,84 @@ export default function EditPanel() {
     setQuality(100);
   }
 
-  function runConversion() {
+  async function runConversion() {
     const f = fileRef.current;
     if (!f) return;
 
     const version = ++conversionVersionRef.current;
+    const currentTarget = targetRef.current;
+    const options = {
+      scalePct: resizeModeRef.current === "percent" ? scalePctRef.current : undefined,
+      width:
+        resizeModeRef.current === "pixels" && widthRef.current
+          ? Number(widthRef.current)
+          : undefined,
+      height:
+        resizeModeRef.current === "pixels" && heightRef.current
+          ? Number(heightRef.current)
+          : undefined,
+      keepAspect: keepAspectRef.current,
+      rotate: rotateRef.current,
+      flipX: flipXRef.current,
+      flipY: flipYRef.current,
+      quality: qualityRef.current,
+    };
 
     setPreviewLoading(true);
 
-    convertFile(
-      f,
-      targetRef.current,
-      {
-        scalePct: resizeModeRef.current === "percent" ? scalePctRef.current : undefined,
-        width:
-          resizeModeRef.current === "pixels" && widthRef.current
-            ? Number(widthRef.current)
-            : undefined,
-        height:
-          resizeModeRef.current === "pixels" && heightRef.current
-            ? Number(heightRef.current)
-            : undefined,
-        keepAspect: keepAspectRef.current,
-        rotate: rotateRef.current,
-        flipX: flipXRef.current,
-        flipY: flipYRef.current,
-        quality: qualityRef.current,
-      },
-      () => {},
-    )
-      .then((blob) => {
-        if (version !== conversionVersionRef.current) return;
-        if (blob.size === 0) {
-          setError("変換結果が空です。別の形式を試してください。");
-          return;
+    try {
+      const blob = await convertFile(f, currentTarget, options, () => {});
+      if (version !== conversionVersionRef.current) return;
+      if (blob.size === 0) {
+        setError("変換結果が空です。別の形式を試してください。");
+        return;
+      }
+
+      let previewBlob = blob;
+      let previewError = "";
+
+      if (currentTarget === "tiff") {
+        try {
+          previewBlob = await convertFile(f, "png", options, () => {});
+          if (previewBlob.size === 0) {
+            throw new Error("プレビュー結果が空です。");
+          }
+        } catch (err) {
+          console.error("TIFF preview conversion failed:", err);
+          previewError = "TIFFは生成できましたが、プレビューの生成に失敗しました。";
         }
-        const url = URL.createObjectURL(blob);
-        if (version !== conversionVersionRef.current) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        setEditedUrlValue(url);
-        setEditedSize(blob.size);
-        setDownloadUrlValue(url);
-        editedBlobRef.current = blob;
-        setError("");
-      })
-      .catch((err) => {
-        if (version !== conversionVersionRef.current) return;
-        console.error("Preview conversion failed:", err);
-        setError(
-          err instanceof Error ? err.message : "プレビュー生成に失敗しました。",
-        );
-      })
-      .finally(() => {
-        if (version === conversionVersionRef.current) {
-          setPreviewLoading(false);
-        }
-      });
+      }
+
+      if (version !== conversionVersionRef.current) return;
+
+      const downloadUrl = URL.createObjectURL(blob);
+      setDownloadUrlValue(downloadUrl);
+      editedBlobRef.current = blob;
+      setEditedSize(blob.size);
+
+      if (previewError) {
+        setEditedUrlValue("");
+        setError(previewError);
+        return;
+      }
+
+      if (currentTarget === "tiff") {
+        setEditedUrlValue(URL.createObjectURL(previewBlob));
+      } else {
+        setEditedUrlValue(downloadUrl);
+      }
+      setError("");
+    } catch (err) {
+      if (version !== conversionVersionRef.current) return;
+      console.error("Preview conversion failed:", err);
+      setError(
+        err instanceof Error ? err.message : "プレビュー生成に失敗しました。",
+      );
+    } finally {
+      if (version === conversionVersionRef.current) {
+        setPreviewLoading(false);
+      }
+    }
   }
 
   function scheduleConversion() {
@@ -552,12 +572,14 @@ export default function EditPanel() {
                 }
               />
             </div>
-            <FileActionButtons
-              onDownload={handleDownload}
-              getShareBlob={getShareBlob}
-              filename={outName}
-              disabled={!downloadUrlRef.current || previewLoading}
-            />
+            <div className="mt-4">
+              <FileActionButtons
+                onDownload={handleDownload}
+                getShareBlob={getShareBlob}
+                filename={outName}
+                disabled={!downloadUrlRef.current || previewLoading}
+              />
+            </div>
           </div>
 
         {/* ── 編集設定 ── */}
