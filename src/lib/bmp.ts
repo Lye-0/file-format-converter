@@ -2,6 +2,7 @@ export type DecodedBmp = {
   data: Uint8Array;
   width: number;
   height: number;
+  channels: 3 | 4;
 };
 
 export function decodeBmp(buffer: ArrayBuffer): DecodedBmp {
@@ -37,37 +38,43 @@ export function decodeBmp(buffer: ArrayBuffer): DecodedBmp {
   const height = Math.abs(signedHeight);
   const topDown = signedHeight < 0;
   const srcBytesPerPixel = bitsPerPixel / 8;
+  const channels: 3 | 4 = bitsPerPixel === 32 ? 4 : 3;
   const rowStride = (width * srcBytesPerPixel + 3) & ~3;
   const required = pixelOffset + rowStride * height;
   if (required > bytes.length) {
     throw new Error("BMPの画素データが不足しています。");
   }
 
-  const rgba = new Uint8Array(width * height * 4);
+  const pixels = new Uint8Array(width * height * channels);
   let hasNonZeroAlpha = false;
 
   for (let y = 0; y < height; y += 1) {
     const srcY = topDown ? y : height - 1 - y;
     const srcRow = pixelOffset + srcY * rowStride;
-    const dstRow = y * width * 4;
+    const dstRow = y * width * channels;
 
     for (let x = 0; x < width; x += 1) {
       const src = srcRow + x * srcBytesPerPixel;
-      const dst = dstRow + x * 4;
-      rgba[dst] = bytes[src + 2];
-      rgba[dst + 1] = bytes[src + 1];
-      rgba[dst + 2] = bytes[src];
-      const alpha = bitsPerPixel === 32 ? bytes[src + 3] : 255;
-      rgba[dst + 3] = alpha;
-      if (bitsPerPixel === 32 && alpha !== 0) hasNonZeroAlpha = true;
+      const dst = dstRow + x * channels;
+      pixels[dst] = bytes[src + 2];
+      pixels[dst + 1] = bytes[src + 1];
+      pixels[dst + 2] = bytes[src];
+
+      if (channels === 4) {
+        const alpha = bytes[src + 3];
+        pixels[dst + 3] = alpha;
+        if (alpha !== 0) hasNonZeroAlpha = true;
+      }
     }
   }
 
-  if (bitsPerPixel === 32 && compression === 0 && !hasNonZeroAlpha) {
-    for (let i = 3; i < rgba.length; i += 4) rgba[i] = 255;
+  // 一部の32bit BI_RGB BMPでは4バイト目が未使用で、全画素0になっている。
+  // その場合は透明画像ではなく不透明画像として扱う。
+  if (channels === 4 && compression === 0 && !hasNonZeroAlpha) {
+    for (let i = 3; i < pixels.length; i += 4) pixels[i] = 255;
   }
 
-  return { data: rgba, width, height };
+  return { data: pixels, width, height, channels };
 }
 
 export function encodeBmp(

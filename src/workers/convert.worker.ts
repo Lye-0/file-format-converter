@@ -107,28 +107,44 @@ async function decodeHeif(buffer: ArrayBuffer) {
   }
 }
 
+function newSrgbImageFromMemory(
+  vips: any,
+  data: Uint8Array,
+  width: number,
+  height: number,
+  channels: 3 | 4,
+) {
+  const raw = vips.Image.newFromMemory(data, width, height, channels, "uchar");
+
+  try {
+    return raw.copy({ interpretation: "srgb" });
+  } finally {
+    raw.delete();
+  }
+}
+
 async function loadImage(buffer: ArrayBuffer, sourceExt: string, vips: any) {
   const ext = sourceExt.toLowerCase();
 
   if (ext === "heic" || ext === "heif") {
     const decoded = await decodeHeif(buffer);
-    return vips.Image.newFromMemory(
+    return newSrgbImageFromMemory(
+      vips,
       decoded.data,
       decoded.width,
       decoded.height,
       4,
-      "uchar",
     );
   }
 
   if (ext === "bmp") {
     const decoded = decodeBmp(buffer);
-    return vips.Image.newFromMemory(
+    return newSrgbImageFromMemory(
+      vips,
       decoded.data,
       decoded.width,
       decoded.height,
-      4,
-      "uchar",
+      decoded.channels,
     );
   }
 
