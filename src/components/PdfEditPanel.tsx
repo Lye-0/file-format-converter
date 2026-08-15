@@ -304,10 +304,13 @@ function PdfGroupBlock({
       const blob = await getGroupBlob();
       const { shareFile } = await import("@/lib/utils/share");
       const filename = getOutputFilename(group, groupIndex, totalGroups);
-      const { cancelled } = await shareFile(blob, filename);
-      if (!cancelled) {
-        setError("");
+      const { ok, cancelled } = await shareFile(blob, filename);
+      if (cancelled) return;
+      if (!ok) {
+        setError("共有の準備ができました。もう一度共有ボタンを押してください。");
+        return;
       }
+      setError("");
     } catch {
       setError("共有に失敗しました");
     } finally {
@@ -484,6 +487,7 @@ function PdfGroupBlock({
       <div className="mt-3">
         <FileActionButtons
           onDownload={downloadGroup}
+          onShare={shareGroup}
           getShareBlob={getShareBlob}
           filename={getOutputFilename(group, groupIndex, totalGroups)}
           disabled={exporting || pages.length === 0}
