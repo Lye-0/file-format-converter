@@ -33,7 +33,7 @@ export async function convertFile(
   file: File,
   target: string,
   opts: ConvertOpts,
-  onProgress: (p: number) => void,
+  onProgress?: (p: number) => void,
 ): Promise<Blob> {
   const ext = getExt(file.name);
   const cat = getCategory(ext);
@@ -41,16 +41,23 @@ export async function convertFile(
   if (cat === "image") {
     const api = getRemote();
     const buf = await file.arrayBuffer();
+    const progress = onProgress ? Comlink.proxy(onProgress) : undefined;
 
     if (target === "pdf") {
-      const out = (await api.imageToPdf(buf, ext, opts)) as ArrayBuffer;
+      const out = (await api.imageToPdf(buf, ext, opts, progress)) as ArrayBuffer;
 
       return new Blob([out], {
         type: "application/pdf",
       });
     }
 
-    const out = (await api.convertImage(buf, ext, target, opts)) as ArrayBuffer;
+    const out = (await api.convertImage(
+      buf,
+      ext,
+      target,
+      opts,
+      progress,
+    )) as ArrayBuffer;
 
     return new Blob([out], {
       type: MIME[target] ?? "application/octet-stream",
@@ -65,7 +72,7 @@ export async function convertFile(
       buf,
       `input.${ext}`,
       target,
-      Comlink.proxy(onProgress),
+      onProgress ? Comlink.proxy(onProgress) : undefined,
     )) as ArrayBuffer;
 
     return new Blob([out], {
@@ -79,7 +86,7 @@ export async function convertFile(
     return await pdfToFirstPageImage(
       file,
       target as "png" | "jpg",
-      onProgress,
+      onProgress ?? (() => {}),
     );
   }
 

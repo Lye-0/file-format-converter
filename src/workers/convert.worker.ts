@@ -17,6 +17,8 @@ export type ImageOpts = {
   quality?: number;
 };
 
+type ProgressCallback = (progress: number) => void;
+
 type VipsModule = {
   default?: (options?: Record<string, unknown>) => Promise<any>;
 };
@@ -70,6 +72,18 @@ function errorMessage(err: unknown): string {
   } catch {
     return "不明なエラー";
   }
+}
+
+function attachImageProgress(img: any, onProgress?: ProgressCallback) {
+  if (!onProgress) return;
+
+  let lastPercent = -1;
+  img.onProgress = (percent: number) => {
+    const next = Math.max(0, Math.min(99, Math.round(percent)));
+    if (next === lastPercent) return;
+    lastPercent = next;
+    onProgress(next / 100);
+  };
 }
 
 async function decodeHeif(buffer: ArrayBuffer) {
@@ -218,7 +232,7 @@ function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
   return out;
 }
 
-function imageToBmp(img: any): Uint8Array {
+function imageToBmp(img: any, onProgress?: ProgressCallback): Uint8Array {
   let normalized = img;
   let temporary: any = null;
 
@@ -248,6 +262,7 @@ function imageToBmp(img: any): Uint8Array {
       channels = packed.hasAlpha() ? 4 : 3;
     }
 
+    attachImageProgress(packed, onProgress);
     const pixels = packed.writeToMemory() as Uint8Array;
     const bmp = encodeBmp(pixels, packed.width, packed.height, channels);
 
@@ -265,6 +280,7 @@ const api = {
     sourceExt: string,
     target: string,
     opts: ImageOpts = {},
+    onProgress?: ProgressCallback,
   ) {
     let img: any = null;
 
@@ -281,21 +297,24 @@ const api = {
           img = img.resize(256 / maxDim);
         }
 
+        attachImageProgress(img, onProgress);
         const png: Uint8Array = img.writeToBuffer(".png");
         const ico = pngToIco(png, img.width, img.height);
 
         img.delete();
         img = null;
+        onProgress?.(1);
 
         const ab = ico.slice().buffer;
         return Comlink.transfer(ab, [ab]);
       }
 
       if (target === "bmp") {
-        const bmp = imageToBmp(img);
+        const bmp = imageToBmp(img, onProgress);
 
         img.delete();
         img = null;
+        onProgress?.(1);
 
         const ab = bmp.slice().buffer;
         return Comlink.transfer(ab, [ab]);
@@ -312,6 +331,7 @@ const api = {
         options.Q = opts.quality ?? 82;
       }
 
+      attachImageProgress(img, onProgress);
       const out: Uint8Array = img.writeToBuffer("." + ext, options);
 
       img.delete();
@@ -321,6 +341,7 @@ const api = {
         throw new Error(`出力形式 ${target} への変換結果が空です。`);
       }
 
+      onProgress?.(1);
       const ab = out.slice().buffer;
       return Comlink.transfer(ab, [ab]);
     } catch (err) {
@@ -340,6 +361,7 @@ const api = {
     buffer: ArrayBuffer,
     sourceExt: string,
     opts: ImageOpts = {},
+    onProgress?: ProgressCallback,
   ) {
     const vips = await getVips();
     let img: any = null;
@@ -348,6 +370,7 @@ const api = {
       img = await loadImage(buffer, sourceExt, vips);
       img = applyImageTransforms(img, vips, opts);
 
+      attachImageProgress(img, onProgress);
       const png: Uint8Array = img.writeToBuffer(".png");
       const w = img.width;
       const h = img.height;
@@ -367,6 +390,7 @@ const api = {
       });
 
       const bytes = await pdf.save();
+      onProgress?.(1);
       const ab = bytes.slice().buffer;
 
       return Comlink.transfer(ab, [ab]);
@@ -387,7 +411,7 @@ const api = {
     buffer: ArrayBuffer,
     inputName: string,
     target: string,
-    onProgress?: (p: number) => void,
+    onProgress?: ProgressCallback,
   ) {
     const ff = await getFFmpeg();
 

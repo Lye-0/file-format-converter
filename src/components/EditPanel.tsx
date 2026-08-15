@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Slider from "@/components/Slider";
 import FileInputIcon from "@/components/FileInputIcon";
 import FileActionButtons from "@/components/FileActionButtons";
-import { convertFile } from "@/lib/convert";
+import { convertFile, type ConvertOpts } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
 import { formatBytes } from "@/lib/utils/formatBytes";
 import { triggerDownload } from "@/lib/utils/download";
@@ -14,7 +14,9 @@ type ResizeMode = "percent" | "pixels";
 type PreviewMode = "native" | "converted";
 
 const IMAGE_EDIT_OUTPUTS = ["png", "jpg", "webp", "avif", "gif", "bmp", "tiff"];
-const DEBOUNCE_MS = 300;
+const PREVIEW_DEBOUNCE_MS = 300;
+const FINAL_DEBOUNCE_MS = 1000;
+const DIRECT_PREVIEW_TARGETS = new Set(["png", "jpg"]);
 
 function getImageEditTargets(ext: string) {
   const normalized = normalizeExt(ext);
@@ -79,6 +81,23 @@ function getOutFileName(file: File | null, target: string) {
   return `${base}_edited.${target}`;
 }
 
+function getOutputKey(file: File, target: string, opts: ConvertOpts) {
+  return JSON.stringify([
+    file.name,
+    file.size,
+    file.lastModified,
+    target,
+    opts.scalePct ?? null,
+    opts.width ?? null,
+    opts.height ?? null,
+    opts.keepAspect ?? true,
+    opts.rotate ?? 0,
+    opts.flipX ?? false,
+    opts.flipY ?? false,
+    opts.quality ?? 100,
+  ]);
+}
+
 const ACTIVE_BTN = "bg-green-50 text-green-700 border border-green-200";
 const INACTIVE_BTN = "bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100";
 
@@ -93,6 +112,10 @@ export default function EditPanel() {
   const [editedUrl, setEditedUrl] = useState<string | null>(null);
   const [editedSize, setEditedSize] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [finalGenerating, setFinalGenerating] = useState(false);
+  const [finalProgress, setFinalProgress] = useState(0);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [showActionProgress, setShowActionProgress] = useState(false);
 
   const [target, setTarget] = useState("png");
   const [resizeMode, setResizeMode] = useState<ResizeMode>("percent");
@@ -128,17 +151,17 @@ export default function EditPanel() {
   const flipYRef = useLatest(flipY);
   const qualityRef = useLatest(quality);
 
-  const debounceTimerRef = useRef<number | null>(null);
-  const conversionVersionRef = useRef(0);
+  const previewTimerRef = useRef<number | null>(null);
+  const finalTimerRef = useRef<number | null>(null);
+  const previewVersionRef = useRef(0);
+  const finalVersionRef = useRef(0);
+  const finalKeyRef = useRef("");
+  const finalPromiseKeyRef = useRef("");
+  const finalPromiseRef = useRef<Promise<Blob> | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const sourceDragDepthRef = useRef(0);
   const [sourceDrag, setSourceDrag] = useState(false);
   const [sourceHover, setSourceHover] = useState(false);
-
-  useEffect(() => {
-    if (!fileRef.current) return;
-    scheduleConversion();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, resizeMode, scalePct, width, height, keepAspect, rotate, flipX, flipY, quality]);
 
   const ext = file ? getExt(file.name) : "";
   const normalizedExt = normalizeExt(ext);
@@ -149,7 +172,6 @@ export default function EditPanel() {
   }, [file, ext]);
 
   const showQuality = ["jpg", "webp", "avif"].includes(target);
-
   const outName = getOutFileName(file, target);
 
   const outDim = useMemo(
@@ -200,13 +222,68 @@ export default function EditPanel() {
     downloadUrlRef.current = url;
   }
 
+  function getCurrentOptions(): ConvertOpts {
+    return {
+      scalePct: resizeModeRef.current === "percent" ? scalePctRef.current : undefined,
+      width:
+        resizeModeRef.current === "pixels" && widthRef.current
+          ? Number(widthRef.current)
+          : undefined,
+      height:
+        resizeModeRef.current === "pixels" && heightRef.current
+          ? Number(heightRef.current)
+          : undefined,
+      keepAspect: keepAspectRef.current,
+      rotate: rotateRef.current,
+      flipX: flipXRef.current,
+      flipY: flipYRef.current,
+      quality: qualityRef.current,
+    };
+  }
+
+  function clearPreviewTimer() {
+    if (previewTimerRef.current !== null) {
+      clearTimeout(previewTimerRef.current);
+      previewTimerRef.current = null;
+    }
+  }
+
+  function clearFinalTimer() {
+    if (finalTimerRef.current !== null) {
+      clearTimeout(finalTimerRef.current);
+      finalTimerRef.current = null;
+    }
+  }
+
+  function invalidateFinalOutput() {
+    clearFinalTimer();
+    finalVersionRef.current += 1;
+    finalKeyRef.current = "";
+    finalPromiseKeyRef.current = "";
+    finalPromiseRef.current = null;
+    editedBlobRef.current = null;
+    setDownloadUrlValue("");
+    setEditedSize(null);
+    setFinalProgress(0);
+    setFinalGenerating(false);
+  }
+
   function clearPreviews() {
+    clearPreviewTimer();
+    clearFinalTimer();
+    previewVersionRef.current += 1;
+    finalVersionRef.current += 1;
     setEditedUrlValue("");
     setEditedSize(null);
     setDownloadUrlValue("");
     setError("");
     setPreviewLoading(false);
+    setFinalGenerating(false);
+    setFinalProgress(0);
     editedBlobRef.current = null;
+    finalKeyRef.current = "";
+    finalPromiseKeyRef.current = "";
+    finalPromiseRef.current = null;
   }
 
   function resetImageSettings() {
@@ -223,97 +300,153 @@ export default function EditPanel() {
     setQuality(100);
   }
 
-  async function runConversion() {
+  function storeFinalBlob(blob: Blob, key: string, version: number) {
+    if (version !== finalVersionRef.current) return false;
+
+    editedBlobRef.current = blob;
+    finalKeyRef.current = key;
+    setDownloadUrlValue(URL.createObjectURL(blob));
+    setEditedSize(blob.size);
+    setFinalProgress(1);
+    return true;
+  }
+
+  async function runPreview(previewVersion: number, finalVersion: number) {
     const f = fileRef.current;
     if (!f) return;
 
-    const version = ++conversionVersionRef.current;
     const currentTarget = targetRef.current;
-    const options = {
-      scalePct: resizeModeRef.current === "percent" ? scalePctRef.current : undefined,
-      width:
-        resizeModeRef.current === "pixels" && widthRef.current
-          ? Number(widthRef.current)
-          : undefined,
-      height:
-        resizeModeRef.current === "pixels" && heightRef.current
-          ? Number(heightRef.current)
-          : undefined,
-      keepAspect: keepAspectRef.current,
-      rotate: rotateRef.current,
-      flipX: flipXRef.current,
-      flipY: flipYRef.current,
-      quality: qualityRef.current,
-    };
+    const options = getCurrentOptions();
+    const key = getOutputKey(f, currentTarget, options);
+    const previewTarget = DIRECT_PREVIEW_TARGETS.has(currentTarget)
+      ? currentTarget
+      : "png";
 
     setPreviewLoading(true);
 
     try {
-      const blob = await convertFile(f, currentTarget, options, () => {});
-      if (version !== conversionVersionRef.current) return;
+      const blob = await convertFile(f, previewTarget, options);
+      if (previewVersion !== previewVersionRef.current) return;
       if (blob.size === 0) {
-        setError("変換結果が空です。別の形式を試してください。");
+        setError("プレビュー結果が空です。別の形式を試してください。");
         return;
       }
 
-      let previewBlob = blob;
-      let previewError = "";
+      setEditedUrlValue(URL.createObjectURL(blob));
 
-      if (currentTarget === "tiff") {
-        try {
-          previewBlob = await convertFile(f, "png", options, () => {});
-          if (previewBlob.size === 0) {
-            throw new Error("プレビュー結果が空です。");
-          }
-        } catch (err) {
-          console.error("TIFF preview conversion failed:", err);
-          previewError = "TIFFは生成できましたが、プレビューの生成に失敗しました。";
-        }
+      // PNG/JPGはプレビューそのものが最終出力なので、そのまま再利用する。
+      if (DIRECT_PREVIEW_TARGETS.has(currentTarget)) {
+        storeFinalBlob(blob, key, finalVersion);
       }
 
-      if (version !== conversionVersionRef.current) return;
-
-      const downloadUrl = URL.createObjectURL(blob);
-      setDownloadUrlValue(downloadUrl);
-      editedBlobRef.current = blob;
-      setEditedSize(blob.size);
-
-      if (previewError) {
-        setEditedUrlValue("");
-        setError(previewError);
-        return;
-      }
-
-      if (currentTarget === "tiff") {
-        setEditedUrlValue(URL.createObjectURL(previewBlob));
-      } else {
-        setEditedUrlValue(downloadUrl);
-      }
       setError("");
     } catch (err) {
-      if (version !== conversionVersionRef.current) return;
+      if (previewVersion !== previewVersionRef.current) return;
       console.error("Preview conversion failed:", err);
       setError(
         err instanceof Error ? err.message : "プレビュー生成に失敗しました。",
       );
     } finally {
-      if (version === conversionVersionRef.current) {
+      if (previewVersion === previewVersionRef.current) {
         setPreviewLoading(false);
       }
     }
   }
 
-  function scheduleConversion() {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    debounceTimerRef.current = window.setTimeout(() => {
-      debounceTimerRef.current = null;
-      runConversion();
-    }, DEBOUNCE_MS);
+  async function ensureFinalBlob(showProgress: boolean, requestedVersion?: number) {
+    const f = fileRef.current;
+    if (!f) throw new Error("画像を選択してください。");
+
+    const currentTarget = targetRef.current;
+    const options = getCurrentOptions();
+    const key = getOutputKey(f, currentTarget, options);
+    const version = requestedVersion ?? finalVersionRef.current;
+
+    if (editedBlobRef.current && finalKeyRef.current === key) {
+      return editedBlobRef.current;
+    }
+
+    if (
+      finalPromiseRef.current &&
+      finalPromiseKeyRef.current === key
+    ) {
+      if (showProgress) setShowActionProgress(true);
+      return await finalPromiseRef.current;
+    }
+
+    setFinalGenerating(true);
+    setFinalProgress(0);
+    if (showProgress) setShowActionProgress(true);
+
+    let promise: Promise<Blob>;
+    promise = convertFile(f, currentTarget, options, (progress) => {
+      if (version === finalVersionRef.current) {
+        setFinalProgress(progress);
+      }
+    })
+      .then((blob) => {
+        if (blob.size === 0) {
+          throw new Error("変換結果が空です。別の形式を試してください。");
+        }
+
+        storeFinalBlob(blob, key, version);
+        return blob;
+      })
+      .catch((err) => {
+        if (version === finalVersionRef.current) {
+          setError(err instanceof Error ? err.message : "変換に失敗しました。");
+        }
+        throw err;
+      })
+      .finally(() => {
+        if (version === finalVersionRef.current) {
+          setFinalGenerating(false);
+        }
+        if (finalPromiseRef.current === promise) {
+          finalPromiseRef.current = null;
+          finalPromiseKeyRef.current = "";
+        }
+      });
+
+    finalPromiseRef.current = promise;
+    finalPromiseKeyRef.current = key;
+    return await promise;
+  }
+
+  function scheduleConversions() {
+    const f = fileRef.current;
+    if (!f) return;
+
+    clearPreviewTimer();
+    invalidateFinalOutput();
+
+    const previewVersion = ++previewVersionRef.current;
+    const finalVersion = finalVersionRef.current;
+    const currentTarget = targetRef.current;
+
+    previewTimerRef.current = window.setTimeout(() => {
+      previewTimerRef.current = null;
+      void runPreview(previewVersion, finalVersion);
+    }, PREVIEW_DEBOUNCE_MS);
+
+    if (!DIRECT_PREVIEW_TARGETS.has(currentTarget)) {
+      finalTimerRef.current = window.setTimeout(() => {
+        finalTimerRef.current = null;
+        void ensureFinalBlob(false, finalVersion).catch(() => {});
+      }, FINAL_DEBOUNCE_MS);
+    }
   }
 
   useEffect(() => {
+    if (!fileRef.current) return;
+    scheduleConversions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [file, target, resizeMode, scalePct, width, height, keepAspect, rotate, flipX, flipY, quality]);
+
+  useEffect(() => {
     return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+      clearPreviewTimer();
+      clearFinalTimer();
       revokeRef(sourceUrlRef);
       revokeRef(editedUrlRef);
       revokeRef(downloadUrlRef);
@@ -342,8 +475,6 @@ export default function EditPanel() {
     setSourcePreviewLoading(false);
     setSourceUrl(URL.createObjectURL(f));
     setError("");
-
-    scheduleConversion();
   }
 
   async function createConvertedSourcePreview() {
@@ -361,7 +492,6 @@ export default function EditPanel() {
         file,
         "png",
         { scalePct: 100, rotate: 0, quality: 90 },
-        () => {},
       );
       setSourceUrl(URL.createObjectURL(previewBlob));
       setSourcePreviewLoading(false);
@@ -407,15 +537,57 @@ export default function EditPanel() {
     }
   }
 
-  function handleDownload() {
-    const url = downloadUrlRef.current;
-    if (!url) return;
-    triggerDownload(url, outName);
+  async function handleDownload() {
+    const f = fileRef.current;
+    if (!f) return;
+
+    const options = getCurrentOptions();
+    const key = getOutputKey(f, targetRef.current, options);
+
+    if (
+      editedBlobRef.current &&
+      finalKeyRef.current === key &&
+      downloadUrlRef.current
+    ) {
+      triggerDownload(downloadUrlRef.current, outName);
+      return;
+    }
+
+    setActionBusy(true);
+    setShowActionProgress(true);
+    setError("");
+
+    try {
+      await ensureFinalBlob(true);
+      if (downloadUrlRef.current) {
+        triggerDownload(downloadUrlRef.current, outName);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "変換に失敗しました。");
+    } finally {
+      setActionBusy(false);
+      window.setTimeout(() => setShowActionProgress(false), 150);
+    }
   }
 
-  function getShareBlob() {
-    return editedBlobRef.current;
+  async function handleShare() {
+    setActionBusy(true);
+    setError("");
+
+    try {
+      const blob = await ensureFinalBlob(false);
+      const { shareFile } = await import("@/lib/utils/share");
+      const { ok, cancelled } = await shareFile(blob, outName);
+      if (cancelled) return;
+      if (!ok) setError("このファイルを共有できませんでした。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "共有に失敗しました。");
+    } finally {
+      setActionBusy(false);
+    }
   }
+
+  const getShareBlob = useCallback(() => editedBlobRef.current, []);
 
   function FileInfoRow({ label, value }: { label: string; value: string }) {
     return (
@@ -430,8 +602,23 @@ export default function EditPanel() {
     fileInputRef.current?.click();
   }
 
+  function handleSourceDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    sourceDragDepthRef.current += 1;
+    setSourceDrag(true);
+  }
+
+  function handleSourceDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    sourceDragDepthRef.current = Math.max(0, sourceDragDepthRef.current - 1);
+    if (sourceDragDepthRef.current === 0) {
+      setSourceDrag(false);
+    }
+  }
+
   function handleSourceDrop(e: React.DragEvent) {
     e.preventDefault();
+    sourceDragDepthRef.current = 0;
     setSourceDrag(false);
     const f = e.dataTransfer.files?.[0];
     if (f) handleFile(f);
@@ -450,10 +637,7 @@ export default function EditPanel() {
         }}
       />
 
-      {/* Grid */}
       <div className="grid gap-4 sm:grid-cols-2">
-
-        {/* ── 元画像 ── */}
         <div className="order-1 rounded-2xl border border-gray-200 bg-white p-5">
           <h3 className="text-sm font-semibold text-gray-700">元画像</h3>
           <div
@@ -463,22 +647,20 @@ export default function EditPanel() {
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") handleSourceClick();
             }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setSourceDrag(true);
-            }}
-            onDragLeave={() => setSourceDrag(false)}
+            onDragEnter={handleSourceDragEnter}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={handleSourceDragLeave}
             onDrop={handleSourceDrop}
             onMouseEnter={() => file && setSourceHover(true)}
             onMouseLeave={() => setSourceHover(false)}
-              className={`relative mt-3 flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl transition ${
-                sourceDrag
-                  ? "border-2 border-green-400 bg-green-50"
-                  : "border-2 border-transparent bg-gray-50 hover:border-gray-200"
-              } ${!file ? "aspect-[4/3] sm:aspect-video" : "aspect-video"}`}
+            className={`relative mt-3 flex cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl transition ${
+              sourceDrag
+                ? "border-2 border-green-400 bg-green-50"
+                : "border-2 border-transparent bg-gray-50 hover:border-gray-200"
+            } ${!file ? "aspect-[4/3] sm:aspect-video" : "aspect-video"}`}
           >
             {sourcePreviewLoading ? (
-              <span className="text-sm text-gray-400">プレビュー生成中…</span>
+              <span className="pointer-events-none text-sm text-gray-400">プレビュー生成中…</span>
             ) : sourcePreviewUrl ? (
               <>
                 <img
@@ -486,10 +668,10 @@ export default function EditPanel() {
                   alt="元画像プレビュー"
                   onLoad={handleOriginalImageLoad}
                   onError={createConvertedSourcePreview}
-                  className="max-h-full max-w-full object-contain"
+                  className="pointer-events-none max-h-full max-w-full object-contain"
                 />
                 {sourceHover && !sourceDrag && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity">
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/30 transition-opacity">
                     <span className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm">
                       画像を変更
                     </span>
@@ -497,19 +679,21 @@ export default function EditPanel() {
                 )}
               </>
             ) : (
-              <div className="flex flex-col items-center gap-2 text-gray-400">
+              <div className="pointer-events-none flex flex-col items-center gap-2 text-gray-400">
                 <FileInputIcon className="h-10 w-10 sm:h-12 sm:w-12" />
                 <span className="text-sm">画像を選択</span>
                 <span className="text-xs">またはここにドロップ</span>
               </div>
             )}
-            {sourceDrag && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
-                  ここにドロップ
-                </span>
-              </div>
-            )}
+            <div
+              className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity ${
+                sourceDrag ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <span className="rounded-lg bg-green-100 px-4 py-2 text-sm font-medium text-green-700">
+                ここにドロップ
+              </span>
+            </div>
           </div>
           {file && (
             <div className="mt-2 space-y-1 sm:mt-3 sm:space-y-1.5">
@@ -528,65 +712,68 @@ export default function EditPanel() {
           )}
         </div>
 
-        {/* ── 編集後 ── */}
         <div className="order-3 rounded-2xl border border-gray-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-gray-700">編集後</h3>
-            <div className={`relative mt-3 flex items-center justify-center overflow-hidden rounded-xl bg-gray-50 ${
+          <h3 className="text-sm font-semibold text-gray-700">編集後</h3>
+          <div
+            className={`relative mt-3 flex items-center justify-center overflow-hidden rounded-xl bg-gray-50 ${
               editedUrl ? "aspect-video" : "aspect-[4/3] sm:aspect-video"
-            }`}>
-              {editedUrl ? (
-                <img
-                  src={editedUrl}
-                  alt="編集後プレビュー"
-                  onError={() =>
-                    setError("編集後の画像を表示できませんでした。別の形式を試してください。")
-                  }
-                  className={`max-h-full max-w-full object-contain transition-opacity ${
-                    previewLoading ? "opacity-50" : "opacity-100"
-                  }`}
-                />
-              ) : (
-                <span className="text-sm text-gray-400">編集後のプレビュー</span>
-              )}
-              {previewLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/60">
-                  <span className="text-sm text-gray-500">更新中…</span>
-                </div>
-              )}
-            </div>
-            <div className="mt-3 space-y-1.5">
-              <FileInfoRow label="ファイル名" value={outName} />
-              <FileInfoRow label="形式" value={target.toUpperCase()} />
-              <FileInfoRow
-                label="画像サイズ"
-                value={`${outDim.w} × ${outDim.h}px`}
-              />
-              <FileInfoRow
-                label="ファイルサイズ"
-                value={
-                  editedSize !== null
-                    ? formatBytes(editedSize)
-                    : previewLoading
-                      ? "計算中…"
-                      : "—"
+            }`}
+          >
+            {editedUrl ? (
+              <img
+                src={editedUrl}
+                alt="編集後プレビュー"
+                onError={() =>
+                  setError("編集後の画像を表示できませんでした。別の形式を試してください。")
                 }
+                className={`max-h-full max-w-full object-contain transition-opacity ${
+                  previewLoading ? "opacity-50" : "opacity-100"
+                }`}
               />
-            </div>
-            <div className="mt-4">
-              <FileActionButtons
-                onDownload={handleDownload}
-                getShareBlob={getShareBlob}
-                filename={outName}
-                disabled={!downloadUrlRef.current || previewLoading}
-              />
-            </div>
+            ) : (
+              <span className="text-sm text-gray-400">編集後のプレビュー</span>
+            )}
+            {previewLoading && (
+              <div className="absolute inset-0 flex items-center justify-center bg-white/60">
+                <span className="text-sm text-gray-500">更新中…</span>
+              </div>
+            )}
           </div>
+          <div className="mt-3 space-y-1.5">
+            <FileInfoRow label="ファイル名" value={outName} />
+            <FileInfoRow label="形式" value={target.toUpperCase()} />
+            <FileInfoRow
+              label="画像サイズ"
+              value={`${outDim.w} × ${outDim.h}px`}
+            />
+            <FileInfoRow
+              label="ファイルサイズ"
+              value={
+                editedSize !== null
+                  ? formatBytes(editedSize)
+                  : file
+                    ? "計算中…"
+                    : "—"
+              }
+            />
+          </div>
+          <div className="mt-4">
+            <FileActionButtons
+              onDownload={handleDownload}
+              onShare={handleShare}
+              getShareBlob={getShareBlob}
+              filename={outName}
+              disabled={!file || actionBusy}
+              onError={setError}
+              progress={finalProgress}
+              showProgress={showActionProgress}
+            />
+          </div>
+        </div>
 
-        {/* ── 編集設定 ── */}
         <div className="order-2 rounded-2xl border border-gray-200 bg-white p-5 sm:row-span-2">
           <h3 className="text-sm font-semibold text-gray-700">編集設定</h3>
 
-          {/* Output format */}
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               出力形式
@@ -606,7 +793,6 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* Resolution */}
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               画像サイズ
@@ -632,7 +818,6 @@ export default function EditPanel() {
                   px指定
                 </button>
               </div>
-              {/* Detail area — indented with left border */}
               <div className="mt-3 ml-4 border-l-2 border-gray-200 pl-4">
                 {resizeMode === "percent" ? (
                   <Slider
@@ -704,7 +889,6 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* Rotation */}
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               回転
@@ -725,7 +909,6 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* Flip */}
           <div className="mt-4 border-t border-gray-100 pt-4">
             <h4 className="text-xs font-medium tracking-wide text-gray-600 uppercase">
               反転
@@ -752,7 +935,6 @@ export default function EditPanel() {
             </div>
           </div>
 
-          {/* Quality */}
           {showQuality && (
             <div className="mt-4 border-t border-gray-100 pt-4">
               <Slider
@@ -780,7 +962,9 @@ export default function EditPanel() {
           {error}
         </p>
       )}
-      
+      {finalGenerating && !editedSize && !error && (
+        <span className="sr-only">出力ファイルを準備中</span>
+      )}
     </section>
   );
 }

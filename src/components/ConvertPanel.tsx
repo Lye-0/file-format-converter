@@ -24,7 +24,6 @@ export default function ConvertPanel() {
   const [shareError, setShareError] = useState("");
 
   const fauxRef = useRef<number | null>(null);
-  const convertingRef = useRef(false);
   const cachedBlobRef = useRef<Blob | null>(null);
   const cachedKeyRef = useRef<string>("");
 
@@ -36,7 +35,6 @@ export default function ConvertPanel() {
     ? `${file.name.replace(/\.[^.]+$/, "")}.${target || "dat"}`
     : `output.${target || "dat"}`;
 
-  // キャッシュキー: 入力ファイル+出力形式の組み合わせ
   const cacheKey = file ? `${file.name}_${file.size}_${target}` : "";
 
   function stopFauxProgress() {
@@ -64,7 +62,6 @@ export default function ConvertPanel() {
     if (!file || !target) throw new Error("変換できません");
     if (normalizedExt === target) throw new Error("同じ形式への変換はできません");
 
-    // キャッシュヒット
     if (cachedBlobRef.current && cachedKeyRef.current === cacheKey) {
       return cachedBlobRef.current;
     }
@@ -74,7 +71,9 @@ export default function ConvertPanel() {
     setError("");
     setShareError("");
 
-    const useFauxProgress = cat !== "audio";
+    // PDF入力だけは既存の疑似進捗を維持する。
+    // 画像はwasm-vips、音声はFFmpegの実進捗を使う。
+    const useFauxProgress = cat === "pdf";
     if (useFauxProgress) startFauxProgress();
 
     try {
@@ -90,7 +89,6 @@ export default function ConvertPanel() {
       stopFauxProgress();
       setProgress(1);
 
-      // キャッシュ保存
       cachedBlobRef.current = blob;
       cachedKeyRef.current = cacheKey;
 
@@ -103,21 +101,16 @@ export default function ConvertPanel() {
     }
   }, [file, target, normalizedExt, cat, cacheKey]);
 
-  /** ダウンロード処理 */
   const handleDownload = useCallback(async () => {
     try {
       setShareError("");
       const blob = await generateBlob();
-      triggerDownload(
-        URL.createObjectURL(blob),
-        outName,
-      );
+      triggerDownload(URL.createObjectURL(blob), outName);
     } catch (err) {
       setError(err instanceof Error ? err.message : "変換に失敗しました");
     }
   }, [generateBlob, outName]);
 
-  /** 共有処理 */
   const handleShare = useCallback(async () => {
     try {
       setError("");
@@ -135,7 +128,6 @@ export default function ConvertPanel() {
     }
   }, [generateBlob, outName]);
 
-  /** ファイル変更時 */
   function handleFile(f: File) {
     const sourceExt = getExt(f.name);
     const availableTargets = getTargets(sourceExt);
@@ -146,7 +138,6 @@ export default function ConvertPanel() {
       newTarget = availableTargets.find((t) => t !== normSource) ?? "";
     }
 
-    // キャッシュ無効化
     cachedBlobRef.current = null;
     cachedKeyRef.current = "";
 
@@ -158,19 +149,16 @@ export default function ConvertPanel() {
     setProgress(0);
   }
 
-  /** 出力形式変更時 */
   function handleTargetChange(v: string) {
     setTarget(v);
     setError("");
     setShareError("");
     setProgress(0);
 
-    // キャッシュ無効化
     cachedBlobRef.current = null;
     cachedKeyRef.current = "";
   }
 
-  /** 共有可能 Blob を返す（FileActionButtons用） */
   const getShareBlob = useCallback(() => cachedBlobRef.current, []);
 
   useEffect(() => {
@@ -182,18 +170,15 @@ export default function ConvertPanel() {
   return (
     <>
       <div className="flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row sm:gap-6">
-        {/* 入力 */}
         <DropZone file={file} onFile={handleFile} />
 
-        {/* 中央: 矢印 + プルダウン */}
         <div className="flex w-full max-w-[340px] flex-col items-center gap-1 sm:w-auto sm:max-w-none">
-          {/* スマホ: 中央に矢印、その右にプルダウン */}
           <div className="relative flex w-full justify-center sm:hidden">
-            <ArrowProgress
-              progress={progress}
-              active={isConverting}
-            />
-            <div className="absolute top-1/2 -translate-y-1/2" style={{ left: 'calc(50% + 26px)' }}>
+            <ArrowProgress progress={progress} active={isConverting} />
+            <div
+              className="absolute top-1/2 -translate-y-1/2"
+              style={{ left: "calc(50% + 26px)" }}
+            >
               <FormatSelect
                 targets={targets}
                 value={target}
@@ -204,7 +189,6 @@ export default function ConvertPanel() {
             </div>
           </div>
 
-          {/* PC: プルダウン + 横向き矢印 */}
           <div className="hidden sm:flex sm:flex-col sm:items-center sm:gap-1">
             <FormatSelect
               targets={targets}
@@ -213,14 +197,10 @@ export default function ConvertPanel() {
               disabled={isConverting}
               disabledTarget={normalizedExt}
             />
-            <ArrowProgress
-              progress={progress}
-              active={isConverting}
-            />
+            <ArrowProgress progress={progress} active={isConverting} />
           </div>
         </div>
 
-        {/* 出力 */}
         <div className="hidden sm:block">
           <OutputArea
             file={file}
@@ -235,7 +215,6 @@ export default function ConvertPanel() {
         </div>
       </div>
 
-      {/* スマホ用の出力欄 */}
       <div className="mt-2 flex w-full justify-center sm:hidden">
         <OutputArea
           file={file}

@@ -8,21 +8,14 @@ import {
 } from "@/lib/utils/share";
 
 type FileActionButtonsProps = {
-  /** ダウンロード時のコールバック */
   onDownload: () => void | Promise<void>;
-  /**
-   * 共有処理を呼び出し側で行う場合のコールバック。
-   * 未生成Blobを遅延生成してから共有したい画面で使う。
-   */
   onShare?: () => void | Promise<void>;
-  /** 共有済み/生成済みBlobを直接使う場合の取得関数 */
   getShareBlob?: () => Blob | null;
-  /** 共有時のファイル名（getShareBlobを使う場合に必要） */
   filename?: string;
-  /** 無効化（変換中など） */
   disabled?: boolean;
-  /** エラーメッセージ表示コールバック */
   onError?: (msg: string) => void;
+  progress?: number;
+  showProgress?: boolean;
 };
 
 function ShareIcon({ className = "" }: { className?: string }) {
@@ -66,12 +59,13 @@ export default function FileActionButtons({
   filename,
   disabled = false,
   onError,
+  progress = 0,
+  showProgress = false,
 }: FileActionButtonsProps) {
   const [shareSupported, setShareSupported] = useState(false);
+  const progressPct = Math.max(0, Math.min(100, progress * 100));
 
   useEffect(() => {
-    // Blobが未生成でも、ブラウザがファイル共有に対応していればボタンを表示する。
-    // すでにBlobがある場合は、その実ファイル形式までcanShareで確認する。
     const blob = getShareBlob?.();
     if (blob && filename) {
       setShareSupported(canShareFile(blob, filename));
@@ -82,13 +76,11 @@ export default function FileActionButtons({
 
   async function handleShare() {
     try {
-      // 変換/PDFのように、共有押下時にBlobを遅延生成する画面はこちらを使う。
       if (onShare) {
         await onShare();
         return;
       }
 
-      // 画像編集のように、すでに生成済みBlobがある画面はこちらを使う。
       const blob = getShareBlob?.();
       if (!blob || !filename) {
         onError?.("共有するファイルがありません");
@@ -111,9 +103,16 @@ export default function FileActionButtons({
         type="button"
         onClick={onDownload}
         disabled={disabled}
-        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40 sm:px-5 sm:py-2"
+        className="relative flex flex-1 items-center justify-center overflow-hidden rounded-lg bg-green-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40 sm:px-5 sm:py-2"
       >
-        ダウンロード
+        {showProgress && (
+          <span
+            className="absolute inset-y-0 left-0 bg-green-800/35 transition-[width] duration-100 ease-linear"
+            style={{ width: `${progressPct}%` }}
+            aria-hidden="true"
+          />
+        )}
+        <span className="relative z-10">ダウンロード</span>
       </button>
 
       {shareSupported && (
