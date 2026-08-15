@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Slider from "@/components/Slider";
 import FileInputIcon from "@/components/FileInputIcon";
+import FileActionButtons from "@/components/FileActionButtons";
 import { convertFile } from "@/lib/convert";
 import { getCategory, getExt, normalizeExt } from "@/lib/formats";
 import { formatBytes } from "@/lib/utils/formatBytes";
@@ -112,6 +113,7 @@ export default function EditPanel() {
 
   const sourceUrlRef = useRef<string | null>(null);
   const editedUrlRef = useRef<string | null>(null);
+  const editedBlobRef = useRef<Blob | null>(null);
   const downloadUrlRef = useRef<string | null>(null);
 
   const fileRef = useRef<File | null>(null);
@@ -204,6 +206,7 @@ export default function EditPanel() {
     setDownloadUrlValue("");
     setError("");
     setPreviewLoading(false);
+    editedBlobRef.current = null;
   }
 
   function resetImageSettings() {
@@ -263,6 +266,7 @@ export default function EditPanel() {
         setEditedUrlValue(url);
         setEditedSize(blob.size);
         setDownloadUrlValue(url);
+        editedBlobRef.current = blob;
         setError("");
       })
       .catch((err) => {
@@ -387,6 +391,10 @@ export default function EditPanel() {
     const url = downloadUrlRef.current;
     if (!url) return;
     triggerDownload(url, outName);
+  }
+
+  function getShareBlob() {
+    return editedBlobRef.current;
   }
 
   function FileInfoRow({ label, value }: { label: string; value: string }) {
@@ -544,14 +552,12 @@ export default function EditPanel() {
                 }
               />
             </div>
-            <button
-              type="button"
-              onClick={handleDownload}
+            <FileActionButtons
+              onDownload={handleDownload}
+              getShareBlob={getShareBlob}
+              filename={outName}
               disabled={!downloadUrlRef.current || previewLoading}
-              className="mt-4 w-full rounded-xl bg-green-600 py-3 text-sm font-medium text-white shadow-sm hover:bg-green-700 disabled:opacity-40"
-            >
-              ダウンロード
-            </button>
+            />
           </div>
 
         {/* ── 編集設定 ── */}

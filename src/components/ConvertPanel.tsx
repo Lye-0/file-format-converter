@@ -6,6 +6,7 @@ import FormatSelect from "@/components/FormatSelect";
 import ArrowProgress from "@/components/ArrowProgress";
 import OutputArea from "@/components/OutputArea";
 import { convertFile } from "@/lib/convert";
+import { triggerDownload } from "@/lib/utils/download";
 import {
   getCategory,
   getExt,
@@ -20,9 +21,12 @@ export default function ConvertPanel() {
   const [isConverting, setIsConverting] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
+  const [shareError, setShareError] = useState("");
 
   const fauxRef = useRef<number | null>(null);
   const convertingRef = useRef(false);
+  const cachedBlobRef = useRef<Blob | null>(null);
+  const cachedKeyRef = useRef<string>("");
 
   const ext = file ? getExt(file.name) : "";
   const normalizedExt = normalizeExt(ext);
@@ -31,6 +35,9 @@ export default function ConvertPanel() {
   const outName = file
     ? `${file.name.replace(/\.[^.]+$/, "")}.${target || "dat"}`
     : `output.${target || "dat"}`;
+
+  // キャッシュキー: 入力ファイル+出力形式の組み合わせ
+  const cacheKey = file ? `${file.name}_${file.size}_${target}` : "";
 
   function stopFauxProgress() {
     if (fauxRef.current) {
@@ -49,44 +56,86 @@ export default function ConvertPanel() {
     }, 100);
   }
 
-  const handleDownload = useCallback(() => {
-    if (!file || !target || convertingRef.current) return;
-    if (normalizedExt === target) return;
+  /**
+   * 変換を実行し、Blobを返す。
+   * 既にキャッシュがあればキャッシュを返す。
+   */
+  const generateBlob = useCallback(async (): Promise<Blob> => {
+    if (!file || !target) throw new Error("変換できません");
+    if (normalizedExt === target) throw new Error("同じ形式への変換はできません");
 
-    convertingRef.current = true;
+    // キャッシュヒット
+    if (cachedBlobRef.current && cachedKeyRef.current === cacheKey) {
+      return cachedBlobRef.current;
+    }
+
     setIsConverting(true);
     setProgress(0);
     setError("");
+    setShareError("");
 
     const useFauxProgress = cat !== "audio";
     if (useFauxProgress) startFauxProgress();
 
-    convertFile(file, target, {}, (p) => {
-      if (!useFauxProgress) setProgress(p);
-    })
-      .then((blob) => {
-        stopFauxProgress();
-        setProgress(1);
+    try {
+      const blob = await convertFile(
+        file,
+        target,
+        {},
+        (p) => {
+          if (!useFauxProgress) setProgress(p);
+        },
+      );
 
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = outName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      })
-      .catch((err) => {
-        stopFauxProgress();
-        setError(err instanceof Error ? err.message : "変換に失敗しました");
-      })
-      .finally(() => {
-        convertingRef.current = false;
-        setIsConverting(false);
-      });
-  }, [file, target, normalizedExt, cat, outName]);
+      stopFauxProgress();
+      setProgress(1);
 
+      // キャッシュ保存
+      cachedBlobRef.current = blob;
+      cachedKeyRef.current = cacheKey;
+
+      return blob;
+    } catch (err) {
+      stopFauxProgress();
+      throw err;
+    } finally {
+      setIsConverting(false);
+    }
+  }, [file, target, normalizedExt, cat, cacheKey]);
+
+  /** ダウンロード処理 */
+  const handleDownload = useCallback(async () => {
+    try {
+      setShareError("");
+      const blob = await generateBlob();
+      triggerDownload(
+        URL.createObjectURL(blob),
+        outName,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "変換に失敗しました");
+    }
+  }, [generateBlob, outName]);
+
+  /** 共有処理 */
+  const handleShare = useCallback(async () => {
+    try {
+      setError("");
+      const blob = await generateBlob();
+      const { shareFile } = await import("@/lib/utils/share");
+      const { ok, cancelled } = await shareFile(blob, outName);
+
+      if (cancelled) return;
+
+      if (!ok) {
+        setShareError("このファイルを共有できませんでした。もう一度共有ボタンを押してください。");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "共有に失敗しました");
+    }
+  }, [generateBlob, outName]);
+
+  /** ファイル変更時 */
   function handleFile(f: File) {
     const sourceExt = getExt(f.name);
     const availableTargets = getTargets(sourceExt);
@@ -97,18 +146,32 @@ export default function ConvertPanel() {
       newTarget = availableTargets.find((t) => t !== normSource) ?? "";
     }
 
+    // キャッシュ無効化
+    cachedBlobRef.current = null;
+    cachedKeyRef.current = "";
+
     setFile(f);
     setTargets(availableTargets);
     setTarget(newTarget);
     setError("");
+    setShareError("");
     setProgress(0);
   }
 
+  /** 出力形式変更時 */
   function handleTargetChange(v: string) {
     setTarget(v);
     setError("");
+    setShareError("");
     setProgress(0);
+
+    // キャッシュ無効化
+    cachedBlobRef.current = null;
+    cachedKeyRef.current = "";
   }
+
+  /** 共有可能 Blob を返す（FileActionButtons用） */
+  const getShareBlob = useCallback(() => cachedBlobRef.current, []);
 
   useEffect(() => {
     return () => {
@@ -124,7 +187,7 @@ export default function ConvertPanel() {
 
         {/* 中央: 矢印 + プルダウン */}
         <div className="flex w-full max-w-[340px] flex-col items-center gap-1 sm:w-auto sm:max-w-none">
-          {/* スマホ: 矢印を中央に、プルダウンはそのすぐ右 */}
+          {/* スマホ: 中央に矢印、その右にプルダウン */}
           <div className="relative flex w-full justify-center sm:hidden">
             <ArrowProgress
               progress={progress}
@@ -164,7 +227,10 @@ export default function ConvertPanel() {
             outName={outName}
             isConverting={isConverting}
             error={error}
+            shareError={shareError}
             onDownload={handleDownload}
+            onShare={handleShare}
+            getShareBlob={getShareBlob}
           />
         </div>
       </div>
@@ -176,7 +242,10 @@ export default function ConvertPanel() {
           outName={outName}
           isConverting={isConverting}
           error={error}
+          shareError={shareError}
           onDownload={handleDownload}
+          onShare={handleShare}
+          getShareBlob={getShareBlob}
         />
       </div>
     </>

@@ -1,13 +1,17 @@
 "use client";
 
 import FileInputIcon from "@/components/FileInputIcon";
+import FileActionButtons from "@/components/FileActionButtons";
 
 type OutputAreaProps = {
   file: File | null;
   outName: string;
   isConverting: boolean;
   error: string;
+  shareError: string;
   onDownload: () => void;
+  onShare: () => void;
+  getShareBlob: () => Blob | null;
 };
 
 export default function OutputArea({
@@ -15,7 +19,10 @@ export default function OutputArea({
   outName,
   isConverting,
   error,
+  shareError,
   onDownload,
+  onShare,
+  getShareBlob,
 }: OutputAreaProps) {
   if (!file) {
     return (
@@ -40,14 +47,15 @@ export default function OutputArea({
       <p className="w-full truncate text-xs font-medium text-gray-700" title={outName}>
         {outName}
       </p>
-      <button
-        type="button"
-        onClick={onDownload}
+      <FileActionButtons
+        onDownload={onDownload}
+        getShareBlob={getShareBlob}
+        filename={outName}
         disabled={isConverting}
-        className="mt-auto w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-40"
-      >
-        {isConverting ? "変換中…" : "ダウンロード"}
-      </button>
+      />
+      {shareError && (
+        <p className="mt-1 text-xs text-amber-600">{shareError}</p>
+      )}
     </div>
   );
 }

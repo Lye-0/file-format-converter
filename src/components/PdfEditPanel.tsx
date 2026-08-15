@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { PDFDocument, degrees } from "pdf-lib";
 import FileInputIcon from "@/components/FileInputIcon";
+import FileActionButtons from "@/components/FileActionButtons";
 import { getPdfjs } from "@/lib/utils/pdfjs";
 import { triggerDownload } from "@/lib/utils/download";
 
@@ -127,10 +128,16 @@ function PdfGroupBlock({
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+  const pdfBlobRef = useRef<Blob | null>(null);
 
   const pages = group.pages;
   const selectedIndex = pages.findIndex((p) => p.id === selectedId);
   const isSource = pageDragSource?.groupId === group.id;
+
+  // ページが変更されたらPDF blobキャッシュを無効化
+  useEffect(() => {
+    pdfBlobRef.current = null;
+  }, [pages]);
 
   function selectPage(id: string) {
     setSelectedId((prev) => (prev === id ? null : id));
@@ -138,6 +145,7 @@ function PdfGroupBlock({
 
   function rotatePage(direction: 1 | -1) {
     if (selectedIndex < 0) return;
+    pdfBlobRef.current = null;
     const next = pages.map((p, i) =>
       i === selectedIndex
         ? { ...p, rotation: (p.rotation + direction * 90 + 360) % 360 }
@@ -152,6 +160,7 @@ function PdfGroupBlock({
       setConfirmDeleteGroupId(group.id);
       return;
     }
+    pdfBlobRef.current = null;
     onUpdatePages(
       group.id,
       pages.filter((_, i) => i !== selectedIndex),
@@ -269,8 +278,7 @@ function PdfGroupBlock({
   async function downloadGroup() {
     setExporting(true);
     try {
-      const bytes = await generateGroupPdf(group, pdfCache);
-      const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+      const blob = await getGroupBlob();
       triggerDownload(
         URL.createObjectURL(blob),
         getOutputFilename(group, groupIndex, totalGroups),
@@ -280,6 +288,35 @@ function PdfGroupBlock({
     } finally {
       setExporting(false);
     }
+  }
+
+  async function getGroupBlob(): Promise<Blob> {
+    if (pdfBlobRef.current) return pdfBlobRef.current;
+    const bytes = await generateGroupPdf(group, pdfCache);
+    const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
+    pdfBlobRef.current = blob;
+    return blob;
+  }
+
+  async function shareGroup() {
+    setExporting(true);
+    try {
+      const blob = await getGroupBlob();
+      const { shareFile } = await import("@/lib/utils/share");
+      const filename = getOutputFilename(group, groupIndex, totalGroups);
+      const { cancelled } = await shareFile(blob, filename);
+      if (!cancelled) {
+        setError("");
+      }
+    } catch {
+      setError("共有に失敗しました");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function getShareBlob() {
+    return pdfBlobRef.current;
   }
 
   const isDropTarget = pageDragSource && !isSource;
@@ -443,16 +480,14 @@ function PdfGroupBlock({
         })}
       </div>
 
-      {/* Download button */}
-      <div className="mt-3 flex justify-end">
-        <button
-          type="button"
-          onClick={downloadGroup}
+      {/* Download + Share buttons */}
+      <div className="mt-3">
+        <FileActionButtons
+          onDownload={downloadGroup}
+          getShareBlob={getShareBlob}
+          filename={getOutputFilename(group, groupIndex, totalGroups)}
           disabled={exporting || pages.length === 0}
-          className="rounded-lg bg-green-600 px-4 py-2 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-40"
-        >
-          {exporting ? "生成中…" : "ダウンロード"}
-        </button>
+        />
       </div>
 
       {/* Delete group confirmation modal */}
