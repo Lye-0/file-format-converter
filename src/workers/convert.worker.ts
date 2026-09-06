@@ -165,19 +165,44 @@ async function loadImage(buffer: ArrayBuffer, sourceExt: string, vips: any) {
   return vips.Image.newFromBuffer(new Uint8Array(buffer));
 }
 
-let ffmpeg: FFmpeg | null = null;
+let ffmpegPromise: Promise<FFmpeg> | null = null;
 
 async function getFFmpeg() {
-  if (!ffmpeg) {
-    ffmpeg = new FFmpeg();
+  if (!ffmpegPromise) {
+    ffmpegPromise = (async () => {
+      const ffmpeg = new FFmpeg();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 60_000);
 
-    await ffmpeg.load({
-      coreURL: "/ffmpeg/ffmpeg-core.js",
-      wasmURL: "/ffmpeg/ffmpeg-core.wasm",
+      try {
+        await ffmpeg.load(
+          {
+            // Keep the package worker unbundled: Turbopack cannot resolve its
+            // dynamic import of ffmpeg-core.js. Use an absolute URL because the
+            // bundled FFmpeg class resolves classWorkerURL against import.meta.url.
+            classWorkerURL: new URL("/ffmpeg/worker.js", self.location.origin).href,
+            coreURL: "/ffmpeg/ffmpeg-core.js",
+            wasmURL: "/ffmpeg/ffmpeg-core.wasm",
+          },
+          { signal: controller.signal },
+        );
+        return ffmpeg;
+      } catch (err) {
+        ffmpeg.terminate();
+        const detail = controller.signal.aborted
+          ? "読み込みがタイムアウトしました。もう一度お試しください。"
+          : errorMessage(err);
+        throw new Error(`音声変換エンジンの読み込みに失敗しました: ${detail}`);
+      } finally {
+        clearTimeout(timeout);
+      }
+    })().catch((err: unknown) => {
+      ffmpegPromise = null;
+      throw err;
     });
   }
 
-  return ffmpeg;
+  return ffmpegPromise;
 }
 
 function applyImageTransforms(img: any, vips: any, opts: ImageOpts = {}) {
@@ -419,22 +444,39 @@ const api = {
       onProgress?.(Math.min(0.99, progress));
     };
 
-    ff.on("progress", handler);
+    const logs: string[] = [];
+    const logHandler = ({ message }: { message: string }) => {
+      logs.push(message);
+      if (logs.length > 8) logs.shift();
+    };
 
+    ff.on("progress", handler);
+    ff.on("log", logHandler);
     const outName = "output." + target;
 
-    await ff.writeFile(inputName, new Uint8Array(buffer));
-    await ff.exec(["-i", inputName, outName]);
+    try {
+      await ff.writeFile(inputName, new Uint8Array(buffer));
+      const exitCode = await ff.exec(["-hide_banner", "-loglevel", "error", "-i", inputName, outName]);
+      if (exitCode !== 0) {
+        throw new Error(logs.join("\n") || `FFmpeg終了コード: ${exitCode}`);
+      }
 
-    const data = (await ff.readFile(outName)) as Uint8Array;
+      const data = await ff.readFile(outName);
+      if (!(data instanceof Uint8Array) || data.byteLength === 0) {
+        throw new Error("変換後の音声データが空です。");
+      }
 
-    await ff.deleteFile(inputName).catch(() => {});
-    await ff.deleteFile(outName).catch(() => {});
-
-    ff.off("progress", handler);
-
-    const ab = data.slice().buffer;
-    return Comlink.transfer(ab, [ab]);
+      const ab = data.slice().buffer;
+      return Comlink.transfer(ab, [ab]);
+    } catch (err) {
+      // FFmpeg rejects with strings; normalize them before crossing Comlink.
+      throw new Error(`音声変換に失敗しました: ${errorMessage(err)}`);
+    } finally {
+      ff.off("progress", handler);
+      ff.off("log", logHandler);
+      await ff.deleteFile(inputName).catch(() => {});
+      await ff.deleteFile(outName).catch(() => {});
+    }
   },
 };
 
